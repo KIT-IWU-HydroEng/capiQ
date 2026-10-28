@@ -1,0 +1,84 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Project configuration
+# Reference: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+# ─────────────────────────────────────────────────────────────────────────────
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capiQ"
+version = "0.1.0"                        # MAJOR.MINOR.PATCH, see https://semver.org
+description = "Computational Automation Pipeline for Hydro-morphodynamic simulation Queues"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Luiz Oliveira", email = "luiz.oliveira@kit.edu" },
+]
+keywords = ["hydraulics", "river engineering", "BASEMENT", "simulation queue", "hydro-morphodynamics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Hydrology",
+]
+# Runtime dependencies: only what the code needs to run, with a minimum version
+dependencies = [
+    "PyYAML>=6.0.1",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+# Development tools, installed with: pip install -e ".[dev]"
+dev = [
+    "bandit>=1.9",
+    "mypy>=2.0",
+    "pip-audit>=2.10",
+    "pre-commit>=4.0",
+    "pytest>=9.0",
+    "ruff>=0.17",
+    "types-PyYAML",
+]
+
+[project.urls]
+Repository = "https://github.com/KIT-IWU-HydroEng/capiQ"
+Issues = "https://github.com/KIT-IWU-HydroEng/capiQ/issues"
+
+# ── setuptools ───────────────────────────────────────────────────────────────
+[tool.setuptools.packages.find]
+where = ["src"]                          # "src layout": the package lives in src/capiq/
+
+# ── Ruff ─────────────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+    "user_defined",                      # user-editable area, not part of the package
+]
+
+[tool.ruff.lint]
+# Active rule sets:
+#   E/W  – pycodestyle errors & warnings
+#   F    – Pyflakes (unused imports, undefined names, …)
+#   I    – isort (import ordering)
+#   UP   – pyupgrade (modern Python idioms)
+select = ["E", "W", "F", "I", "UP"]
+
+ignore = [
+    # E501: line-length is enforced by the formatter (ruff format), not the linter
+    "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ── mypy ─────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true            # for dependencies without type stubs

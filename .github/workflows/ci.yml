@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Python CI, based on https://github.com/KIT-IWU-HydroEng/python-template
+# (without the test job: tests do not apply to this repository)
+#
+#   lint
+#   typecheck
+#   security
+#   dependency-audit
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Ruff: lint and formatting ──────────────────────────────────────────────
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      # The github output format shows findings inline on the pull request
+      - run: ruff check . --output-format=github
+      - run: ruff format --check --diff .
+
+  # ── mypy: static type checking ─────────────────────────────────────────────
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: mypy
+
+  # ── Bandit: common security issues in the code ─────────────────────────────
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install bandit
+      # -ll: report medium and high severity only
+      - run: bandit -r src -ll
+
+  # ── pip-audit: known vulnerabilities in dependencies ───────────────────────
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install pip-audit
+      # Audits the runtime dependencies declared in pyproject.toml
+      - run: pip-audit .

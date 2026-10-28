@@ -1,0 +1,30 @@
+# Checks that run automatically before every commit.
+# Set up once per clone with: pre-commit install
+
+# Example data is kept byte-identical to what BASEMENT reads
+exclude: ^example_files/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-toml
+      - id: check-yaml
+      - id: check-added-large-files   # keep raw data and model output out of the repository
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.2
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy
+        files: ^src/
+        additional_dependencies:
+          - types-PyYAML
