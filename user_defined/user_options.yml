@@ -1,0 +1,19 @@
+# General options
+store_configs: True   # Store the configuration files (.json) of the simulations
+
+simulation_options:
+  # Running options
+  verbose: False          # Verbose output
+  parallel: True          # Run simulations in parallel (if False, runs sequentially)
+
+  # Set the backend for the simulations
+  gpu_backend: cudaC        # Backend for GPU simulations (cuda or cudaC)
+
+  # Run several simularions simultaneously
+  simultaneous: true        # Run several simulations in parallel
+  n_gpus: 0                 # Number of GPUs processes
+  n_sim_cpus: 2             # Number of CPUs processes
+  n_sim_threads: 4          # Number of threads for each CPU process
+
+  # Forces the overwriting of the output files if they already exist
+  overwrite: false           # Overwrite existing output files

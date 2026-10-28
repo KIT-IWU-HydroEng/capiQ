@@ -1,0 +1,112 @@
+{
+    "SETUP": {
+        "simulation_name": "BMT_SIM_008",
+        "BASEHPC": {
+            "PHYSICAL_PROPERTIES": {
+                "gravity": 9.81
+            },
+            "BASEPLANE_2D": {
+                "GEOMETRY": {
+                    "mesh_file": "path/to/meshes/rectangular-channel.2dm",
+                    "_comment": "Any path works: capiQ only uses the file name and looks for it in MESH_FOLDER (user_defined/constants.py). This _comment line can be removed: BASEMENT only warns that its value is not used.",
+                    "STRINGDEF": [
+                        {
+                            "name": "inlet",
+                            "upstream_direction": "left"
+                        },
+                        {
+                            "name": "outlet",
+                            "upstream_direction": "left"
+                        },
+                        {
+                            "name": "inlet_mc",
+                            "upstream_direction": "left"
+                        },
+                        {
+                            "name": "inlet_fp",
+                            "upstream_direction": "left"
+                        },
+                        {
+                            "name": "outlet_mc",
+                            "upstream_direction": "left"
+                        },
+                        {
+                            "name": "outlet_fp",
+                            "upstream_direction": "left"
+                        }
+                    ],
+                    "REGIONDEF": [
+                        {
+                            "index": [
+                                1
+                            ],
+                            "name": "main_channel"
+                        },
+                        {
+                            "index": [
+                                2
+                            ],
+                            "name": "floodplain"
+                        }
+                    ]
+                },
+                "HYDRAULICS": {
+                    "PARAMETER": {
+                        "CFL": 0.8,
+                        "fluid_density": 1000,
+                        "max_time_step": 1.0,
+                        "minimum_water_depth": 0.001,
+                        "safe_mode": "on",
+                        "fluid_viscosity": 1e-06
+                    },
+                    "FRICTION": {
+                        "default_friction": 50.0,
+                        "type": "strickler",
+                        "regions": [
+                            {
+                                "friction": 98.19999694824219,
+                                "region_name": "main_channel"
+                            },
+                            {
+                                "friction": 45.0,
+                                "region_name": "floodplain"
+                            }
+                        ]
+                    },
+                    "BOUNDARY": {
+                        "STANDARD": [
+                            {
+                                "name": "inlet",
+                                "string_name": "inlet",
+                                "type": "froude_in",
+                                "discharge_file": "path/to/support_files/Q001.txt",
+                                "_comment": "Any path works: capiQ only uses the file name and looks for it in SUPPORT_FOLDER (user_defined/constants.py). This _comment line can be removed: BASEMENT only warns that its value is not used.",
+                                "froude_number": 0.2
+                            },
+                            {
+                                "name": "outlet",
+                                "string_name": "outlet",
+                                "type": "uniform_out",
+                                "slope": 0.0005
+                            }
+                        ]
+                    },
+                    "INITIAL": {
+                        "type": "dry"
+                    },
+                    "TURBULENCE": {
+                        "INITIAL": {
+                            "type": "zero"
+                        },
+                        "PARAMETER": {
+                            "turbulence_start": 1500.0
+                        },
+                        "REYNOLDS_STRESS": {
+                            "closure_model": "k_epsilon"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

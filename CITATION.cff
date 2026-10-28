@@ -1,0 +1,24 @@
+# Citation metadata
+# Format: https://citation-file-format.github.io (the "Repository checks" workflow validates this file)
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "capiQ: Computational Automation Pipeline for Hydro-morphodynamic simulation Queues"
+abstract: >-
+  capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynamic
+  simulation Queues, designed to configure, manage, and execute large batches of
+  BASEMENT simulations efficiently.
+authors:
+  - family-names: "Oliveira"
+    given-names: "Luiz"
+    affiliation: "Institute for Water and Environment (IWU), Karlsruhe Institute of Technology (KIT)"
+    orcid: "https://orcid.org/0000-0002-5734-8337"
+repository-code: "https://github.com/KIT-IWU-HydroEng/capiQ"
+keywords:
+  - hydraulics
+  - river engineering
+  - BASEMENT
+  - simulation queue
+  - hydro-morphodynamics
+version: 0.1.0
+license: MIT
