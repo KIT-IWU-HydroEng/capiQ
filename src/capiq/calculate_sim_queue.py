@@ -124,9 +124,12 @@ def calculate(
     # xdmf files
     xdmf_path = folder_sim / f"{basename}_results.xdmf"
 
-    # BASEMENT's own output (setup, simulation and results), started fresh for every run
-    basement_log = folder_sim / f"{basename}_basement.log"
-    basement_log.unlink(missing_ok=True)
+    # BASEMENT's own output, written while it runs and started fresh for every run:
+    # the setup in one file, the simulation and the results in the other
+    setup_log = folder_sim / f"{basename}_setup.log"
+    run_log = folder_sim / f"{basename}_run.log"
+    for log in (setup_log, run_log, folder_sim / f"{basename}_basement.log"):  # _basement.log: older capiQ versions
+        log.unlink(missing_ok=True)
 
     # Update support file paths
     local_paths = {}
@@ -149,7 +152,7 @@ def calculate(
         str(setup_path),
         user_opts["simulation_options"],
         placement=placement,
-        log_filepath=str(basement_log),
+        log_filepath=str(setup_log),
     )
 
     # Run the simulation
@@ -167,7 +170,7 @@ def calculate(
         user_opts["simulation_options"],
         override_backend=backend,
         placement=placement,
-        log_filepath=str(basement_log),
+        log_filepath=str(run_log),
     )
     rts = bt.rts_stats(str(output["stdout"]))
 
@@ -178,7 +181,7 @@ def calculate(
         str(xdmf_path),
         user_opts["simulation_options"],
         placement=placement,
-        log_filepath=str(basement_log),
+        log_filepath=str(run_log),
     )
     # The xdmf finds its h5 files next to it, so the folder can be moved and opened in ParaView
     bt.make_xdmf_relative(str(xdmf_path))

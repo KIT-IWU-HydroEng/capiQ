@@ -157,8 +157,8 @@ def test_run_basement_exe_pinned(monkeypatch):
         def __init__(self, command, **kwargs):
             calls.append((command, kwargs.get("env")))
 
-        def communicate(self, timeout=None):
-            return "", ""
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr(basement_tools, "basement_validate_paths", lambda paths: None)
     monkeypatch.setattr(basement_tools.subprocess, "Popen", FakePopen)
@@ -262,11 +262,11 @@ def test_interrupt_kills_basement_tree(monkeypatch):
         def __init__(self, command, **kwargs):
             self.calls = 0
 
-        def communicate(self, timeout=None):
+        def wait(self, timeout=None):
             self.calls += 1
             if self.calls == 1:
                 raise KeyboardInterrupt
-            return "", ""
+            return self.returncode
 
     monkeypatch.setattr(basement_tools, "basement_validate_paths", lambda paths: None)
     monkeypatch.setattr(basement_tools.subprocess, "Popen", FakePopen)
@@ -410,28 +410,81 @@ def test_kill_process_trees_real():
 
 
 def test_basement_log(tmp_path, monkeypatch):
-    """BASEMENT's output goes to the log file, also when the program fails."""
-    outputs = iter(
-        [(0, "simulation finished at t = 10 (cpu-time = 1s)\n", ""), (3, "reading mesh\n", "Error: bad mesh\n")]
-    )
+    """BASEMENT writes into the log file while it runs, also when the program fails."""
+    outputs = iter([(0, b"simulation finished at t = 10 (cpu-time = 1s)\n"), (3, b"reading mesh\nError: bad mesh\n")])
+    log = tmp_path / "X_run.log"
+    seen_at_start = []
 
     class FakePopen:
         pid = 1
 
-        def __init__(self, command, **kwargs):
-            self.returncode, self.out, self.err = next(outputs)
+        def __init__(self, command, stdout=None, stderr=None, **kwargs):
+            assert stderr == subprocess.STDOUT  # both streams go to the log, in order
+            seen_at_start.append(log.read_text(encoding="utf-8"))
+            self.returncode, out = next(outputs)
+            stdout.write(out)  # the program writes to the log file itself
 
-        def communicate(self, timeout=None):
-            return self.out, self.err
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr(basement_tools, "basement_validate_paths", lambda paths: None)
     monkeypatch.setattr(basement_tools.subprocess, "Popen", FakePopen)
-    log = tmp_path / "X_basement.log"
 
-    basement_tools.run_simulation("run.json", "setup.h5", "results.h5", {"n_sim_threads": 4}, log_filepath=str(log))
-    with pytest.raises(Exception, match="X_basement.log"):
+    output = basement_tools.run_simulation(
+        "run.json", "setup.h5", "results.h5", {"n_sim_threads": 4}, log_filepath=str(log)
+    )
+    assert "simulation finished at t = 10" in output["stdout"]  # read back for the RTS statistics
+    with pytest.raises(Exception, match="X_run.log"):
         basement_tools.run_results("results.json", "results.h5", "results.xdmf", log_filepath=str(log))
 
+    # The command is in the log before the program starts
+    assert "BMv4_simulation" in seen_at_start[0] and "return code" not in seen_at_start[0]
     text = log.read_text(encoding="utf-8")
     assert "BMv4_simulation" in text and "return code 0" in text and "simulation finished at t = 10" in text
     assert "BMv4_results" in text and "return code 3" in text and "Error: bad mesh" in text
+    assert text.index("Error: bad mesh") < text.index("return code 3")
+
+
+def test_basement_log_is_written_live(tmp_path, monkeypatch):
+    """A real program's output is in the log file before the program ends."""
+    script = tmp_path / "program.py"
+    script.write_text("import sys, time\nprint('first', flush=True)\ntime.sleep(3)\nprint('second')\n")
+    log = tmp_path / "X_run.log"
+    monkeypatch.setattr(basement_tools.c, "BASEMENT_PATH", str(Path(sys.executable).parent))
+
+    runner = threading.Thread(
+        target=basement_tools.run_basement_exe,
+        kwargs={"exe_name": Path(sys.executable).name, "input_files": [str(script)], "log_filepath": str(log)},
+    )
+
+    def read_log() -> str:
+        return log.read_text(encoding="utf-8") if log.exists() else ""
+
+    runner.start()
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline and "first" not in read_log():
+        time.sleep(0.05)
+    text_while_running = read_log()
+    runner.join(timeout=30)
+
+    assert "first" in text_while_running and "second" not in text_while_running
+    text = log.read_text(encoding="utf-8")
+    assert "second" in text and "return code 0" in text
+
+
+def test_basement_output_without_log(monkeypatch):
+    """Without a log file the output is still returned."""
+
+    class FakePopen:
+        pid, returncode = 1, 0
+
+        def __init__(self, command, stdout=None, **kwargs):
+            stdout.write(b"done\n")
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(basement_tools, "basement_validate_paths", lambda paths: None)
+    monkeypatch.setattr(basement_tools.subprocess, "Popen", FakePopen)
+    output = basement_tools.run_simulation("run.json", "setup.h5", "results.h5", {"n_sim_threads": 4})
+    assert output["stdout"] == "done\n" and output["returncode"] == 0

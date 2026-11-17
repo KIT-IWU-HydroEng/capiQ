@@ -9,11 +9,14 @@ if __name__ == "__main__":
 
 # Import libraries
 import json
+import locale
 import logging
 import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
+from typing import IO
 
 from capiq import utils
 from capiq.cpu_topology import Placement, launch_env, pinned_command
@@ -98,17 +101,24 @@ def basement_validate_paths(
         raise FileNotFoundError(f"{error_message} {invalid_paths}")
 
 
-def append_basement_log(log_filepath: str, completed: subprocess.CompletedProcess) -> None:
-    """Appends a BASEMENT program's command, return code and output to a text file."""
-    try:
-        with open(log_filepath, "a", encoding="utf-8") as file:
-            file.write(f"===== {' '.join(completed.args)}\n===== return code {completed.returncode}\n")
-            file.write(completed.stdout or "")
-            if completed.stderr:
-                file.write("----- stderr -----\n" + completed.stderr)
-            file.write("\n")
-    except OSError as exc:
-        logger.warning(f"Could not write the BASEMENT log {log_filepath}: {exc}")
+def _open_output(log_filepath: str | None) -> IO[bytes]:
+    """
+    File BASEMENT's output is written to while it runs: the log file (appended to),
+    or a temporary file if there is no log or it cannot be opened.
+    """
+    if log_filepath:
+        try:
+            file = open(log_filepath, "a+b")  # Writes always go to the end, reads from the position
+            file.seek(0, os.SEEK_END)
+            return file
+        except OSError as exc:
+            logger.warning(f"Could not write the BASEMENT log {log_filepath}: {exc}")
+    return tempfile.TemporaryFile()
+
+
+def _write_line(file: IO[bytes], text: str) -> None:
+    file.write(f"{text}\n".encode())
+    file.flush()
 
 
 def run_basement_exe(
@@ -135,10 +145,12 @@ def run_basement_exe(
         placement         : Optional CPU socket, cores and GPU card to run on
                             (see ``capiq.cpu_topology``). None runs unpinned.
         log_filepath      : Optional text file the command and BASEMENT's output are
-                            appended to (also when the program fails).
+                            appended to while the program runs (also when it fails).
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
+        BASEMENT's stdout and stderr go to the file together, so ``stdout`` holds both
+        (in the order they were written) and ``stderr`` is empty.
     """
     if run_options is None:
         run_options = {}
@@ -167,38 +179,47 @@ def run_basement_exe(
     if placement is not None and placement.pinned:
         command = pinned_command(cmd, placement)
 
-    # Run the subprocess and capture both streams
-    try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=launch_env(placement),
-        )
-    except OSError as exc:
-        logging.error(f"Unable to start {exe_path!r}: {exc}")
-        raise
-
-    try:
-        # Short waits: on Windows, Ctrl+C is not seen during a wait without timeout
-        while True:
-            try:
-                stdout, stderr = process.communicate(timeout=0.5)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-    except BaseException:
-        # Ctrl+C or shutdown: stop BASEMENT with its solver process, not only the direct child
-        utils.kill_process_trees([process.pid])
+    # BASEMENT writes its output straight into the log file, so the log grows while it runs
+    with _open_output(log_filepath) as output:
+        _write_line(output, f"===== {' '.join(cmd)}")
+        start = output.tell()
         try:
-            process.communicate(timeout=10)
-        except (subprocess.TimeoutExpired, OSError, ValueError):
-            pass
-        raise
-    completed = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
-    if log_filepath:
-        append_basement_log(log_filepath, completed)
+            process = subprocess.Popen(
+                command,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                env=launch_env(placement),
+            )
+        except OSError as exc:
+            _write_line(output, f"===== could not start: {exc}\n")
+            logging.error(f"Unable to start {exe_path!r}: {exc}")
+            raise
+
+        try:
+            # Short waits: on Windows, Ctrl+C is not seen during a wait without timeout
+            while True:
+                try:
+                    process.wait(timeout=0.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except BaseException:
+            # Ctrl+C or shutdown: stop BASEMENT with its solver process, not only the direct child
+            utils.kill_process_trees([process.pid])
+            try:
+                process.wait(timeout=10)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            _write_line(output, "===== interrupted\n")
+            raise
+
+        # Read back what BASEMENT wrote (for the RTS statistics and the error messages)
+        output.seek(start)
+        text = output.read().decode(locale.getpreferredencoding(False), errors="replace")
+        output.seek(0, os.SEEK_END)
+        _write_line(output, f"===== return code {process.returncode}\n")
+
+    completed = subprocess.CompletedProcess(cmd, process.returncode, text, "")
 
     # Optional verbose logging (useful when you run manually)
     if run_options.get("verbose"):

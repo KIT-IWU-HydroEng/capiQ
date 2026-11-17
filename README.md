@@ -149,7 +149,8 @@ Upon successful execution, the pipeline generates:
   │   ├── SCENARIO_Q001_setup.h5
   │   ├── SCENARIO_Q001_results.h5
   │   ├── SCENARIO_Q001_results.xdmf     * open this one in ParaView (with the aux h5 written next to it)
-  │   ├── SCENARIO_Q001_basement.log
+  │   ├── SCENARIO_Q001_setup.log
+  │   ├── SCENARIO_Q001_run.log
   │   ├── SCENARIO_Q001_model.json       * with store_configs: True
   │   └── SCENARIO_Q001_simulation.json
   └── SCENARIO_Q002
@@ -158,7 +159,7 @@ Upon successful execution, the pipeline generates:
 
   Each folder is self-contained: the `.xdmf` refers to its h5 files by name only, so a folder can be copied or moved elsewhere and still opened in ParaView. Set `output_subfolders: False` in `user_options.yml` to write all files directly in `output/` instead.
 * A timestamped log file named `capiQ_YYYY-MM-DD_HH-MM.log` in the project root. For each simulation it gives the elapsed time and BASEMENT's real-time speedup (RTS, overall and the range during the run).
-* BASEMENT's own output for each simulation in `<NAME>_basement.log`: setup, simulation (with its progress lines) and results, each with its command and return code, also when BASEMENT fails.
+* BASEMENT's own output for each simulation, written while BASEMENT runs: the setup in `<NAME>_setup.log`, the simulation (with its progress lines) and the results in `<NAME>_run.log`. Each program's section starts with its command and ends with its return code, also when BASEMENT fails.
 
 Simulations whose results already exist in `output/` are skipped, so an interrupted queue can be restarted. capiQ looks for them in the layout currently selected: after changing `output_subfolders`, move the existing files accordingly or they are run again. Set `overwrite: true` in `user_options.yml` to run them again. Ctrl+C stops the queue together with the running BASEMENT processes.
 
