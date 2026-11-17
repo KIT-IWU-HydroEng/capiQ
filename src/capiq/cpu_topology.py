@@ -9,9 +9,14 @@ Places simulations on CPU sockets (NUMA nodes) and GPUs.
 
 On a machine with several sockets, a simulation whose threads spread over two sockets pays for
 every memory access that crosses the link between them. This module detects the sockets and
-their physical cores (Windows only), hands out disjoint sets of cores inside one socket, and
-launches BASEMENT pinned to them with Windows' own ``start /NODE /AFFINITY``. GPU runs get a
-free card (``CUDA_VISIBLE_DEVICES``) and one core on the socket the card is attached to.
+their physical cores, hands out disjoint sets of cores inside one socket, and launches BASEMENT
+pinned to them. GPU runs get a free card (``CUDA_VISIBLE_DEVICES``) and one core on the socket
+the card is attached to.
+
+The allocation is the same on every system; only reading the hardware and the launch prefix
+depend on it:
+- Windows: GetLogicalProcessorInformationEx, PnP device properties, ``start /NODE /AFFINITY``.
+- Linux (not tested on multi-socket hardware): /sys, ``numactl`` (or ``taskset``).
 
 Check what is detected on a machine with:
     uv run python -c "from capiq import cpu_topology; cpu_topology.report()"
@@ -25,12 +30,15 @@ import json
 import logging
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from capiq import utils
 
 logger = logging.getLogger("cpu_topology")
 
@@ -166,6 +174,8 @@ def parse_topology(numa_raw: bytes, core_raw: bytes) -> list[NumaNode]:
 
 
 def _query_processor_information(relationship: int) -> bytes:
+    if sys.platform != "win32":
+        raise OSError("GetLogicalProcessorInformationEx is only available on Windows")
     import ctypes
     from ctypes import wintypes
 
@@ -182,16 +192,60 @@ def _query_processor_information(relationship: int) -> bytes:
     return buffer.raw[: length.value]
 
 
+def parse_cpulist(text: str) -> list[int]:
+    """Parses a Linux CPU list such as "0-3,8,10-11" into [0, 1, 2, 3, 8, 10, 11]."""
+    cpus: list[int] = []
+    for part in text.strip().split(","):
+        if "-" in part:
+            first, last = part.split("-")
+            cpus.extend(range(int(first), int(last) + 1))
+        elif part:
+            cpus.append(int(part))
+    return cpus
+
+
+def linux_topology(sys_root: Path, allowed: set[int]) -> list[NumaNode]:
+    """
+    Builds the socket list from Linux's /sys/devices/system.
+
+    Args:
+        sys_root: The /sys/devices/system folder (a fake one in tests).
+        allowed: CPUs this process may use (os.sched_getaffinity); other CPUs are left out, so
+                 capiQ never pins outside what a Slurm job or container may use.
+
+    Returns:
+        One NumaNode per socket (all CPUs in one socket if /sys has no NUMA nodes).
+    """
+    node_dirs = sorted(sys_root.glob("node/node[0-9]*"), key=lambda d: int(d.name[4:]))
+    if node_dirs:
+        node_cpus = {int(d.name[4:]): set(parse_cpulist((d / "cpulist").read_text())) & allowed for d in node_dirs}
+    else:
+        node_cpus = {0: set(allowed)}
+
+    nodes = []
+    for node_id, cpus in node_cpus.items():
+        cores = set()
+        for cpu in cpus:
+            siblings_file = sys_root / "cpu" / f"cpu{cpu}" / "topology" / "thread_siblings_list"
+            siblings = parse_cpulist(siblings_file.read_text()) if siblings_file.exists() else [cpu]
+            cores.add(tuple(sorted(set(siblings) & cpus)))
+        nodes.append(NumaNode(node_id, 0, sum(1 << cpu for cpu in cpus), tuple(sorted(cores))))
+    return nodes
+
+
 def detect_topology() -> list[NumaNode] | None:
-    """Returns the sockets of this machine, or None where they cannot be read (non-Windows)."""
-    if sys.platform != "win32":
-        return None
+    """Returns the sockets of this machine, or None where they cannot be read (not Windows or Linux)."""
     try:
-        nodes = parse_topology(
-            _query_processor_information(_RELATION_NUMA_NODE),
-            _query_processor_information(_RELATION_PROCESSOR_CORE),
-        )
-    except (OSError, struct.error) as exc:
+        if sys.platform == "win32":
+            nodes = parse_topology(
+                _query_processor_information(_RELATION_NUMA_NODE),
+                _query_processor_information(_RELATION_PROCESSOR_CORE),
+            )
+        elif sys.platform.startswith("linux"):
+            nodes = linux_topology(Path("/sys/devices/system"), os.sched_getaffinity(0))
+        else:
+            return None
+    except (OSError, ValueError, struct.error) as exc:
         logger.warning(f"Could not read the CPU topology: {exc}")
         return None
     return [node for node in nodes if node.cores] or None
@@ -200,15 +254,34 @@ def detect_topology() -> list[NumaNode] | None:
 # ── GPU detection ────────────────────────────────────────────────────────────
 
 
-def parse_nvidia_smi(output: str) -> list[tuple[int, tuple[int, int, int]]]:
-    """Parses "index, 00000000:41:00.0" lines into (index, (bus, device, function))."""
+def parse_nvidia_smi(output: str) -> list[tuple[int, tuple[int, int, int, int]]]:
+    """Parses "index, 00000000:41:00.0" lines into (index, (domain, bus, device, function))."""
     gpus = []
     for line in output.splitlines():
-        match = re.match(r"\s*(\d+)\s*,\s*(?:[0-9A-Fa-f]+:)?([0-9A-Fa-f]+):([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)", line)
+        match = re.match(r"\s*(\d+)\s*,\s*(?:([0-9A-Fa-f]+):)?([0-9A-Fa-f]+):([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)", line)
         if match:
-            index, bus, device, function = match.groups()
-            gpus.append((int(index), (int(bus, 16), int(device, 16), int(function, 16))))
+            index, domain, bus, device, function = match.groups()
+            pci = (int(domain or "0", 16), int(bus, 16), int(device, 16), int(function, 16))
+            gpus.append((int(index), pci))
     return gpus
+
+
+def linux_gpu_numa_node(pci: tuple[int, int, int, int], sys_root: Path = Path("/sys")) -> int | None:
+    """Socket of a PCI device from /sys/bus/pci/devices/<dddd:bb:dd.f>/numa_node (None if unknown)."""
+    domain, bus, device, function = pci
+    numa_file = (
+        sys_root
+        / "bus"
+        / "pci"
+        / "devices"
+        / f"{domain & 0xFFFF:04x}:{bus:02x}:{device:02x}.{function:x}"
+        / "numa_node"
+    )
+    try:
+        numa = int(numa_file.read_text())
+    except (OSError, ValueError):
+        return None
+    return numa if numa >= 0 else None
 
 
 def parse_pnp_numa(data: list | dict) -> dict[tuple[int, int, int], int]:
@@ -270,13 +343,16 @@ def detect_gpus(numa_override: list[int] | None = None) -> list[GpuInfo] | None:
     if not cards:
         return None
 
-    detected = _gpu_numa_nodes() if sys.platform == "win32" and not numa_override else {}
+    windows_sockets = _gpu_numa_nodes() if sys.platform == "win32" and not numa_override else {}
     gpus = []
-    for index, location in cards:
+    for index, pci in cards:
         if numa_override and index < len(numa_override):
-            gpus.append(GpuInfo(index, int(numa_override[index])))
+            numa: int | None = int(numa_override[index])
+        elif sys.platform == "win32":
+            numa = windows_sockets.get(pci[1:])
         else:
-            gpus.append(GpuInfo(index, detected.get(location)))
+            numa = linux_gpu_numa_node(pci)
+        gpus.append(GpuInfo(index, numa))
     return gpus
 
 
@@ -398,25 +474,50 @@ class GpuSlots:
 # ── Launch ───────────────────────────────────────────────────────────────────
 
 
-def pinned_command(cmd: list[str], placement: Placement) -> str:
-    """
-    Wraps a command so that Windows starts it on the placement's socket and cores.
+def linux_pin_tool() -> str | None:
+    """Launcher used to pin on Linux: numactl (also keeps memory local), else taskset, else None."""
+    return next((tool for tool in ("numactl", "taskset") if shutil.which(tool)), None)
 
-    ``start /NODE`` also places the process's memory on that socket and works across processor
-    groups. ``& exit`` hands the exit code of the program back to the caller (``start /WAIT``
-    alone does not).
+
+def pinned_command(cmd: list[str], placement: Placement, platform: str = sys.platform) -> str | list[str]:
     """
-    program = " ".join(f'"{arg}"' for arg in cmd)
-    return (
-        f'cmd /d /c "start "" /B /WAIT /NODE {placement.node_id} /AFFINITY {placement.node_mask:#x} {program} & exit"'
-    )
+    Wraps a command so that it starts on the placement's socket and cores.
+
+    - Windows: ``start /NODE /AFFINITY`` also places the process's memory on that socket and
+      works across processor groups. ``& exit`` hands the exit code of the program back to the
+      caller (``start /WAIT`` alone does not).
+    - Linux: ``numactl --physcpubind --localalloc`` (memory on the run's own socket, spilling
+      over only when it is full), or ``taskset -c`` if numactl is not installed.
+    """
+    if platform == "win32":
+        program = " ".join(f'"{arg}"' for arg in cmd)
+        return f'cmd /d /c "start "" /B /WAIT /NODE {placement.node_id} /AFFINITY {placement.node_mask:#x} {program} & exit"'
+
+    cpus = _ranges(placement.cpus)
+    if linux_pin_tool() == "numactl":
+        return ["numactl", f"--physcpubind={cpus}", "--localalloc", *cmd]
+    return ["taskset", "-c", cpus, *cmd]
+
+
+# OpenMP thread placement inside a pinned run: GCC's libgomp (Linux) follows it, MSVC's vcomp (Windows) ignores it
+_OPENMP_BINDING = {"OMP_PROC_BIND": "close", "OMP_PLACES": "cores"}
 
 
 def launch_env(placement: Placement | None) -> dict[str, str] | None:
-    """Environment of the child process: selects the GPU card, None to inherit unchanged."""
-    if placement is None or placement.cuda_device is None:
+    """
+    Environment of the child process, None to inherit it unchanged.
+
+    Selects the GPU card, and keeps the OpenMP threads of a pinned run on their cores (without
+    overriding OMP_* variables the user set).
+    """
+    if placement is None:
         return None
-    return {**os.environ, "CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": str(placement.cuda_device)}
+    extra = {}
+    if placement.cuda_device is not None:
+        extra.update({"CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": str(placement.cuda_device)})
+    if placement.pinned:
+        extra.update({key: value for key, value in _OPENMP_BINDING.items() if key not in os.environ})
+    return {**os.environ, **extra} if extra else None
 
 
 @dataclass
@@ -441,13 +542,22 @@ def setup_resources(sim_opts: dict, n_threads: int, n_gpu: int) -> Resources:
     if sim_opts.get("pin_to_socket", True):
         nodes = detect_topology()
         if nodes is None:
-            logger.info(f"CPU sockets cannot be read on {sys.platform} (Windows only): simulations are not pinned")
+            logger.info(
+                f"CPU sockets cannot be read on {sys.platform} (Windows and Linux only): simulations are not pinned"
+            )
         elif len(nodes) < 2:
             logger.info("Single CPU socket: simulations are not pinned")
+        elif sys.platform != "win32" and linux_pin_tool() is None:
+            logger.warning("Neither numactl nor taskset found: simulations are not pinned")
         else:
             cores = CoreAllocator(nodes, sim_opts.get("physical_cores_only", True))
             summary = ", ".join(f"socket {n.node_id}: {len(n.cores)} cores" for n in nodes)
             logger.info(f"CPU sockets: {summary}")
+            if sys.platform != "win32":
+                logger.warning(
+                    "Socket pinning on Linux/Unix has not been tested on real multi-socket hardware: "
+                    "use it at your own risk (pin_to_socket: false turns it off)"
+                )
 
     cpu_cores = cores
     if cores is not None and not cores.fits(n_threads):
@@ -495,12 +605,18 @@ def report(basement_path: str | None = None) -> None:
 
             basement_path = constants.BASEMENT_PATH
         except ImportError:
-            basement_path = r"C:\Program Files\BASEMENT 4.3.0\bin"
-    # OpenMP runtime imported by the OpenMP backend: MSVC's vcomp ignores OMP_PROC_BIND / OMP_PLACES
-    backend = Path(basement_path) / "BMv4_BASEHPC_omp.exe"
+            basement_path = utils.DEFAULT_BASEMENT_PATH
+    folder = Path(basement_path)
+    backends = [
+        b for b in ("omp", "seq", "cuda", "cudaC", "cudaO") if (folder / f"BMv4_BASEHPC_{b}{utils.EXE_SUFFIX}").exists()
+    ]
+    print(f"BASEHPC backends in {folder}: {', '.join(backends) or 'none found'}")
+
+    # OpenMP runtime of the OpenMP backend: GCC's libgomp follows OMP_PLACES / OMP_PROC_BIND, MSVC's vcomp ignores them
+    backend = folder / f"BMv4_BASEHPC_omp{utils.EXE_SUFFIX}"
     try:
-        found = re.findall(rb"(?i)(vcomp\w*|libiomp\w*|libomp\w*|libgomp[-\w]*)\.dll", backend.read_bytes())
-        runtimes = sorted({name.decode().lower() + ".dll" for name in found})
+        found = re.findall(rb"(?i)((?:vcomp|libiomp|libomp|libgomp)[-\w]*\.(?:dll|so))", backend.read_bytes())
+        runtimes = sorted({name.decode().lower() for name in found})
         print(f"OpenMP runtime of {backend.name}: {', '.join(runtimes) or 'none found'}")
     except OSError:
         print(f"OpenMP runtime: {backend} not found")

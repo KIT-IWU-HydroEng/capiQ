@@ -28,7 +28,9 @@ The mesh and support file folders are set in `user_defined/constants.py` and poi
 
 ## Installation
 
-Requires [BASEMENT](https://basement.ethz.ch) 4.x and Python 3.11 or newer. The recommended way to install capiQ is with [uv](https://docs.astral.sh/uv/), which also takes care of Python.
+Requires [BASEMENT](https://basement.ethz.ch) 4.x (BASEHPC module) and Python 3.11 or newer. The recommended way to install capiQ is with [uv](https://docs.astral.sh/uv/), which also takes care of Python.
+
+On Linux, install BASEMENT's Debian package as described in its manual (`sudo dpkg -i BASEMENT-*.deb`). It puts the executables in `/usr/bin`, which is capiQ's default `BASEMENT_PATH` on Linux (`C:\Program Files\BASEMENT 4.3.0\bin` on Windows; change it in `user_defined/constants.py`).
 
 ### 1. Install uv
 
@@ -141,7 +143,18 @@ Upon successful execution, the pipeline generates:
 * Results stored in the `output/` directory
 * A timestamped log file named `capiQ_YYYY-MM-DD_HH-MM.log` in the project root.
 
-Simulations whose results already exist in `output/` are skipped, so an interrupted queue can be restarted. Set `overwrite: true` in `user_options.yml` to run them again.
+Simulations whose results already exist in `output/` are skipped, so an interrupted queue can be restarted. Set `overwrite: true` in `user_options.yml` to run them again. Ctrl+C stops the queue together with the running BASEMENT processes.
+
+### Machines with several CPU sockets or GPUs
+
+On a machine with several CPU sockets, capiQ keeps each simulation inside one socket (on its own cores) and gives each GPU simulation its own card, plus one core on the socket the card is attached to (`pin_to_socket`, `physical_cores_only` and `gpu_numa_nodes` in `user_options.yml`). The log shows where each simulation starts. To see what capiQ detects on a machine:
+
+```bash
+uv run python -c "from capiq import cpu_topology; cpu_topology.report()"
+```
+
+- **Windows:** tested on multi-socket hardware.
+- **Linux:** uses `numactl` if it is installed (`sudo apt-get install numactl`), otherwise `taskset`. **Not tested on real multi-socket Linux hardware: use it at your own risk**, and set `pin_to_socket: false` if simulations fail or slow down.
 
 ## Supported hydrodynamic softwares
 

@@ -16,7 +16,10 @@ simulation_options:
   n_sim_threads: 4          # Number of threads for each CPU process
   preferred_device: gpu     # Device used when both a GPU and a CPU process are free (gpu or cpu)
 
-  # Placement on machines with several CPU sockets (Windows; no effect with a single socket)
+  # Placement on machines with several CPU sockets (Windows and Linux; no effect with a single socket)
+  # WARNING (Linux/Unix): socket pinning and GPU placement have NOT been tested on real
+  # multi-socket Linux hardware. Use them at your own risk; the user assumes all risks.
+  # Set pin_to_socket: false if simulations fail or slow down.
   pin_to_socket: true       # Keep each simulation inside one CPU socket; GPU runs use a core on their card's socket
   physical_cores_only: true # One thread per physical core (skip hyper-thread siblings)
   # gpu_numa_nodes: [0, 1]  # Socket of each GPU (nvidia-smi order), only if auto-detection fails

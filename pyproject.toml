@@ -26,6 +26,7 @@ classifiers = [
 ]
 # Runtime dependencies: only what the code needs to run, with a minimum version
 dependencies = [
+    "psutil>=7.0",
     "PyYAML>=6.0.1",
     "tqdm>=4.66.0",
 ]

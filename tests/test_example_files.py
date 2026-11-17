@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from capiq import basement_tools, create_sim_queue, functions_io
+from capiq import basement_tools, create_sim_queue, functions_io, utils
 from capiq.__main__ import main
 from user_defined import constants
 
 EXAMPLE_FILES = Path(__file__).resolve().parent.parent / "example_files"
-BASEMENT_FOUND = (Path(constants.BASEMENT_PATH) / "BMv4_setup.exe").exists()
+BASEMENT_FOUND = (Path(constants.BASEMENT_PATH) / f"BMv4_setup{utils.EXE_SUFFIX}").exists()
 
 # The example mesh is not part of the repository: it is created by this script
 write_rectangular_mesh = runpy.run_path(str(EXAMPLE_FILES / "create_example_mesh.py"))["write_rectangular_mesh"]

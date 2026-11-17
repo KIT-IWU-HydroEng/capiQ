@@ -109,7 +109,7 @@ def run_basement_exe(
 
     Args:
         exe_name          : Name of the BASEMENT executable
-                            (e.g. ``"BMv4_setup.exe"``, ``"BMv4_simulation.exe"``).
+                            (e.g. ``"BMv4_setup.exe"`` on Windows, ``"BMv4_setup"`` on Linux).
         input_files       : List of input file paths (e.g. config files).
         output_filepath   : Path for the output file.
         run_options       : Optional dict with keys like
@@ -126,10 +126,7 @@ def run_basement_exe(
         run_options = {}
 
     # Resolve BASEMENT installation path
-    basement_path = c.BASEMENT_PATH or run_options.get(
-        "basement_path",
-        r"C:\Program Files\BASEMENT 4.3.0\bin",
-    )
+    basement_path = c.BASEMENT_PATH or run_options.get("basement_path", utils.DEFAULT_BASEMENT_PATH)
     exe_path = os.path.join(basement_path, exe_name)
 
     # Validate paths before running
@@ -233,7 +230,7 @@ def run_setup(
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
     """
     return run_basement_exe(
-        exe_name="BMv4_setup.exe",
+        exe_name=f"BMv4_setup{utils.EXE_SUFFIX}",
         input_files=[config_filepath],
         output_filepath=setup_filepath,
         run_options=run_options,
@@ -279,7 +276,7 @@ def run_simulation(
         nthreads = run_options.get("n_sim_threads", os.cpu_count() or 1)
 
     return run_basement_exe(
-        exe_name="BMv4_simulation.exe",
+        exe_name=f"BMv4_simulation{utils.EXE_SUFFIX}",
         input_files=[run_config_filepath, setup_filepath],
         output_filepath=results_filepath,
         run_options=run_options,
@@ -310,7 +307,7 @@ def run_results(
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
     """
     return run_basement_exe(
-        exe_name="BMv4_results.exe",
+        exe_name=f"BMv4_results{utils.EXE_SUFFIX}",
         input_files=[results_config_file, results_filepath],
         output_filepath=results_output_file,
         run_options=run_options,
