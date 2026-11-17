@@ -64,9 +64,20 @@ Ensure the following directories exist and are populated before running:
 
 * `input/`: must include `NAME_model.json`, `NAME_simulation.json`, and a single `results.json`.
 * Mesh folder (`MESH_FOLDER` in `constants.py`): include the necessary `.2dm` mesh files.
-* Support file folder (`SUPPORT_FOLDER` in `constants.py`): include the discharge `.txt` files and initialization files used in the `NAME_model.json` files.
+* Support file folder (`SUPPORT_FOLDER` in `constants.py`): include the discharge `.txt` files used in the `NAME_model.json` files.
+* Initialization folder (`INITIALIZATION_FOLDER` in `constants.py`, optional): results files used as initial conditions.
 
 In the `NAME_model.json` files, capiQ only uses the file names of meshes and support files and replaces their paths with the folders above, so any path can be given (e.g. `"discharge_file": "path/to/support_files/Q001.txt"`).
+
+#### Initialization simulations
+
+A scenario can start from the results of another one (`"INITIAL": {"type": "continue", "file": "BASE_Q001_results.h5", "time": 1000.0}` in `HYDRAULICS` or `TURBULENCE`). Before running, capiQ looks for every such file:
+
+1. In the initialization folder: the file is used as it is.
+2. Otherwise, in `input/`: `BASE_Q001_results.h5` is produced by `BASE_Q001_model.json`. That simulation runs first, the scenarios that need it start once it has finished, and its results are copied to the initialization folder so later runs find them there.
+3. Otherwise, capiQ stops with an error listing the missing files.
+
+If an initialization simulation fails, the scenarios that depend on it are skipped and the others still run; both are listed at the end of the log.
 
 Tip: Templates for these files and folders can be found under the `example_files/` directory. The example mesh is not stored in the repository; create it before running the examples:
 

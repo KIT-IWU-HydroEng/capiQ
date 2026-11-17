@@ -36,6 +36,44 @@ def mesh_name_from_json(filepath: str) -> str:
     return mesh_name
 
 
+def _file_values(obj) -> list[str]:
+    """Return every string value whose key contains "file" in a nested dict/list."""
+    values = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if isinstance(value, (dict, list)):
+                values.extend(_file_values(value))
+            elif "file" in key.lower() and isinstance(value, str):
+                values.append(value)
+    elif isinstance(obj, list):
+        for item in obj:
+            values.extend(_file_values(item))
+    return values
+
+
+def initialization_files_from_json(filepath: str) -> list[str]:
+    """
+    Extracts the initialization file names required by a model JSON file.
+
+    Looks at the "file" keys of HYDRAULICS.INITIAL and HYDRAULICS.TURBULENCE.INITIAL,
+    the same sections handled by ``model_update_filepaths``.
+
+    Parameters:
+        filepath (str): Path to the model JSON file.
+
+    Returns:
+        list[str]: Unique base names of the required initialization files.
+    """
+    with open(filepath) as file:
+        data = json.load(file)
+
+    hydraulics = data["SETUP"]["BASEHPC"]["BASEPLANE_2D"]["HYDRAULICS"]
+    values = _file_values(hydraulics.get("INITIAL", {}))
+    values += _file_values(hydraulics.get("TURBULENCE", {}).get("INITIAL", {}))
+
+    return list(dict.fromkeys(os.path.basename(value) for value in values))
+
+
 def basement_validate_paths(
     paths: list,
     error_message: str | None = None,

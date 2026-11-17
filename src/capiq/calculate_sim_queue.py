@@ -10,7 +10,6 @@ if __name__ == "__main__":
 # Import libraries
 import concurrent.futures
 import logging
-import queue
 import shutil
 import time
 from pathlib import Path
@@ -87,6 +86,10 @@ def calculate(
     local_paths = {}
     local_paths.update(paths["meshes"].copy())
     local_paths.update(paths["support_files"].copy())
+    # Initialization files produced in this run are read from the output folder,
+    # files from the initialization folder take priority
+    local_paths.update({name: str(folder_output / name) for name in paths.get("produced", {})})
+    local_paths.update(paths.get("initialization_files", {}).copy())
     bt.model_update_filepaths(sim_config_str, local_paths)
 
     # Run setup
@@ -133,6 +136,63 @@ def calculate(
     return t_end - t_start
 
 
+def ready_simulations(
+    pending: list[str],
+    dependencies: dict[str, set[str]],
+    succeeded: set[str],
+    failed: set[str],
+) -> tuple[list[str], list[str]]:
+    """
+    Splits the pending simulations into the ones that can run now and the ones that never will.
+
+    Args:
+        pending: Model file names still to run, in running order.
+        dependencies: {model file name: set of model file names to run first}.
+        succeeded: Model file names that finished successfully.
+        failed: Model file names that failed or were skipped.
+
+    Returns:
+        ready: simulations whose dependencies all succeeded, in running order.
+        blocked: simulations with a failed or skipped dependency.
+    """
+    ready, blocked = [], []
+    for sim in pending:
+        deps = dependencies.get(sim, set())
+        if deps & failed:
+            blocked.append(sim)
+        elif deps <= succeeded:
+            ready.append(sim)
+    return ready, blocked
+
+
+def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> None:
+    """
+    Copies the results of a simulation used as initialization to the initialization folder,
+    so that later runs find it there.
+
+    Args:
+        sim: Model file name of the finished simulation.
+        produced: {results file name: model file name that produces it}.
+        paths: Dictionary containing the paths to the folders.
+    """
+    folder_initialization = paths.get("folder_initialization")
+    if folder_initialization is None:
+        return
+
+    for results_name, producer in produced.items():
+        if producer != sim:
+            continue
+        source = Path(paths["folder_output"]) / results_name
+        target = Path(folder_initialization) / results_name
+        if target.exists():
+            continue
+        try:
+            shutil.copy2(source, target)
+            logger.info(f"Initialization file {results_name} copied to {folder_initialization}")
+        except OSError as exc:
+            logger.warning(f"Could not copy initialization file {results_name} to {folder_initialization}: {exc}")
+
+
 @utils.timeit(logger, message_end="All simulations calculated in {elapsed:.2f} seconds")
 def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     """
@@ -145,17 +205,25 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     """
     logger.info("Running simulations")
 
-    # Extract simulations dictionary
+    # Extract simulations dictionary (already in running order: initializations first)
     dict_simulations = dict_files["simulations_to_run"].copy()
+    dependencies = dict_files.get("dependencies", {})
+    produced = dict_files.get("produced", {})
 
-    # Inject the meshes and support files into the paths dictionary
+    # Inject the meshes, support and initialization files into the paths dictionary
     local_paths = paths.copy()
     local_paths["meshes"] = dict_files["meshes"].copy()
     local_paths["support_files"] = dict_files["support_files"].copy()
+    local_paths["initialization_files"] = dict_files.get("initialization_files", {}).copy()
+    local_paths["produced"] = produced.copy()
 
     # Extract user options
     parallel_mode = user_opts["simulation_options"].get("parallel", False)
     overwrite = user_opts["simulation_options"].get("overwrite", False)
+
+    succeeded: set[str] = set()
+    failed: set[str] = set()
+    skipped: list[str] = []
 
     # Skip simulations that already have final results, unless overwrite is requested
     if not overwrite:
@@ -165,12 +233,44 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         ]
         for name in already_done:
             del dict_simulations[name]
+            succeeded.add(name)
+            store_initialization(name, produced, local_paths)
 
         if already_done:
             logger.info(f"Resuming: skipping {len(already_done)} already completed simulation(s): {already_done}")
 
     # Total number of simulations
     total_sims = len(dict_simulations)
+    pending = list(dict_simulations)
+
+    def skip_blocked(pbar) -> None:
+        """Removes the pending simulations whose initialization failed."""
+        _, blocked = ready_simulations(pending, dependencies, succeeded, failed)
+        for sim in blocked:
+            logger.error(f"Simulation {sim} skipped: its initialization simulation failed or was skipped")
+            pending.remove(sim)
+            failed.add(sim)
+            skipped.append(sim)
+            pbar.update(1)
+
+    def finish(sim: str, elapsed_time: float | None, exc: BaseException | None) -> None:
+        """Records the outcome of a simulation."""
+        sim_name = Path(dict_simulations[sim]).stem.replace("_model", "")
+        if exc is None:
+            logger.info(f"Simulation {sim_name} finished. Elapsed time: {elapsed_time:.2f} seconds")
+            succeeded.add(sim)
+            store_initialization(sim, produced, local_paths)
+        else:
+            logger.error(f"Simulation {sim_name} generated an exception: {exc}")
+            failed.add(sim)
+
+    pbar = tqdm(
+        total=total_sims,
+        desc="Simulations",
+        unit="sim",
+        ncols=80,
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+    )
 
     if parallel_mode:
         logger.info(f"Running {total_sims} simulations simultaneously")
@@ -190,26 +290,12 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
             gpu_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_gpu)
         cpu_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_cpu)
 
-        # Task management
-        pending_sims: queue.Queue[str] = queue.Queue()
-        for sim in dict_simulations.values():
-            pending_sims.put(sim)
-
         cpu_futures: set = set()
         gpu_futures: set = set()
         future_to_sim: dict = {}
 
-        # Create progress bar
-        pbar = tqdm(
-            total=total_sims,
-            desc="Simulations",
-            unit="sim",
-            ncols=80,
-            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-        )
-
         # Main execution loop
-        while not pending_sims.empty() or gpu_futures or cpu_futures:
+        while pending or gpu_futures or cpu_futures:
             # First check for finished tasks
             done, _ = concurrent.futures.wait(
                 gpu_futures | cpu_futures,
@@ -218,12 +304,10 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
             )
             for future in done:
                 sim = future_to_sim.pop(future)
-                sim_name = Path(sim).stem.replace("_model", "")
                 try:
-                    elapsed_time = future.result()
-                    logger.info(f"Simulation {sim_name} finished. Elapsed time: {elapsed_time:.2f} seconds")
+                    finish(sim, future.result(), None)
                 except Exception as exc:
-                    logger.error(f"Simulation {sim_name} generated an exception: {exc}")
+                    finish(sim, None, exc)
 
                 # Update progress bar
                 pbar.update(1)
@@ -233,51 +317,50 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
                 else:
                     cpu_futures.remove(future)
 
-            # Assign new work to any available slots
-            while not pending_sims.empty() and ((n_gpu > 0 and len(gpu_futures) < n_gpu) or len(cpu_futures) < n_cpu):
-                sim = pending_sims.get()
+            # Drop simulations that can no longer run
+            skip_blocked(pbar)
 
+            # Assign ready work (initializations first) to any available slots
+            ready, _ = ready_simulations(pending, dependencies, succeeded, failed)
+            for sim in ready:
                 if n_gpu > 0 and len(gpu_futures) < n_gpu:
-                    future = gpu_executor.submit(
-                        calculate,
-                        sim,
-                        local_paths,
-                        local_user_opts,
-                        True,
-                    )
+                    future = gpu_executor.submit(calculate, dict_simulations[sim], local_paths, local_user_opts, True)
                     gpu_futures.add(future)
-                else:
-                    future = cpu_executor.submit(
-                        calculate,
-                        sim,
-                        local_paths,
-                        local_user_opts,
-                    )
+                elif len(cpu_futures) < n_cpu:
+                    future = cpu_executor.submit(calculate, dict_simulations[sim], local_paths, local_user_opts)
                     cpu_futures.add(future)
+                else:
+                    break
 
+                pending.remove(sim)
                 future_to_sim[future] = sim
 
-        pbar.close()
+        if n_gpu > 0:
+            gpu_executor.shutdown()
+        cpu_executor.shutdown()
 
     else:
-        # Run simulations sequentially
+        # Run simulations sequentially, in running order
         logger.info(f"Running {total_sims} simulations sequentially")
 
-        # Create progress bar
-        with tqdm(
-            total=total_sims,
-            desc="Simulations",
-            unit="sim",
-            ncols=80,
-            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-        ) as pbar:
-            for simulation in dict_simulations.values():
-                sim_name = Path(simulation).stem.replace("_model", "")
+        while pending:
+            skip_blocked(pbar)
+            if not pending:
+                break
 
-                # Run the simulation
-                elapsed_time = calculate(simulation, local_paths, user_opts)
+            sim = pending.pop(0)
+            try:
+                finish(sim, calculate(dict_simulations[sim], local_paths, user_opts), None)
+            except Exception as exc:
+                finish(sim, None, exc)
 
-                logger.info(f"Simulation {sim_name} finished. Elapsed time: {elapsed_time:.2f} seconds")
+            # Update progress bar
+            pbar.update(1)
 
-                # Update progress bar
-                pbar.update(1)
+    pbar.close()
+
+    run_failed = sorted(failed - set(skipped))
+    if run_failed:
+        logger.error(f"{len(run_failed)} simulation(s) failed: {run_failed}")
+    if skipped:
+        logger.error(f"{len(skipped)} simulation(s) skipped because their initialization failed: {skipped}")
