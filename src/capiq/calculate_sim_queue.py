@@ -10,6 +10,7 @@ if __name__ == "__main__":
 # Import libraries
 import concurrent.futures
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
@@ -17,7 +18,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 import capiq.basement_tools as bt
-from capiq import utils
+from capiq import cpu_topology, utils
+from capiq.cpu_topology import Placement
 
 # Create a logger for run_simulations
 logger = logging.getLogger("run_simulations")
@@ -57,6 +59,7 @@ def calculate(
     paths: dict,
     user_opts: dict,
     gpu: bool = False,
+    placement: Placement | None = None,
 ) -> float:
     """
     Run the simulation.
@@ -67,6 +70,7 @@ def calculate(
         user_opts: Dictionary containing the user options.
         gpu: Flag to indicate if the simulation should be run on GPU.
               This is only used if there are simultaneous runs.
+        placement: CPU socket, cores and GPU card to run on; None runs unpinned.
 
     Returns:
         Elapsed time in seconds.
@@ -108,7 +112,7 @@ def calculate(
     bt.model_update_filepaths(sim_config_str, local_paths)
 
     # Run setup
-    bt.run_setup(sim_config_str, str(setup_path), user_opts["simulation_options"])
+    bt.run_setup(sim_config_str, str(setup_path), user_opts["simulation_options"], placement=placement)
 
     # Run the simulation
     if gpu:
@@ -123,6 +127,7 @@ def calculate(
             str(results_path),
             user_opts["simulation_options"],
             override_backend=backend,
+            placement=placement,
         )
     else:
         bt.run_simulation(
@@ -130,6 +135,7 @@ def calculate(
             str(setup_path),
             str(results_path),
             user_opts["simulation_options"],
+            placement=placement,
         )
 
     # Run the results
@@ -138,6 +144,7 @@ def calculate(
         str(results_path),
         str(xdmf_path),
         user_opts["simulation_options"],
+        placement=placement,
     )
 
     # Copies json files to the output folder
@@ -256,8 +263,10 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     local_paths["produced"] = produced.copy()
 
     # Extract user options
-    parallel_mode = user_opts["simulation_options"].get("parallel", False)
-    overwrite = user_opts["simulation_options"].get("overwrite", False)
+    sim_opts = user_opts["simulation_options"]
+    parallel_mode = sim_opts.get("parallel", False)
+    overwrite = sim_opts.get("overwrite", False)
+    n_threads = int(sim_opts.get("n_sim_threads", os.cpu_count() or 1))
 
     succeeded: set[str] = set()
     failed: set[str] = set()
@@ -331,6 +340,10 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         # Overrides backend and nthreads
         local_user_opts = user_opts.copy()
 
+        # CPU sockets and GPU cards each run is placed on
+        resources = cpu_topology.setup_resources(sim_opts, n_threads, n_gpu)
+        cpu_cores, host_cores, gpu_slots = resources.cpu_cores, resources.host_cores, resources.gpus
+
         # Executors
         if n_gpu > 0:
             gpu_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_gpu)
@@ -339,52 +352,94 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         cpu_futures: set = set()
         gpu_futures: set = set()
         future_to_sim: dict = {}
+        # Cores and GPU worker held by each running simulation, released when it ends
+        future_to_resources: dict = {}
 
-        # Main execution loop
-        while pending or gpu_futures or cpu_futures:
-            # First check for finished tasks
-            done, _ = concurrent.futures.wait(
-                gpu_futures | cpu_futures,
-                timeout=0.1,
-                return_when=concurrent.futures.FIRST_COMPLETED,
-            )
-            for future in done:
-                sim = future_to_sim.pop(future)
-                try:
-                    finish(sim, future.result(), None)
-                except Exception as exc:
-                    finish(sim, None, exc)
-
-                # Update progress bar
-                pbar.update(1)
-
-                if future in gpu_futures:
-                    gpu_futures.remove(future)
-                else:
-                    cpu_futures.remove(future)
-
-            # Drop simulations that can no longer run
-            skip_blocked(pbar)
-
-            # Assign ready work (initializations first) to any available slots
-            ready, _ = ready_simulations(pending, dependencies, succeeded, failed)
-            for sim in ready:
-                device = choose_device(
-                    preferred_device,
-                    gpu_free=n_gpu > 0 and len(gpu_futures) < n_gpu,
-                    cpu_free=len(cpu_futures) < n_cpu,
+        try:
+            # Main execution loop
+            while pending or gpu_futures or cpu_futures:
+                # First check for finished tasks
+                done, _ = concurrent.futures.wait(
+                    gpu_futures | cpu_futures,
+                    timeout=0.1,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
                 )
-                if device == "gpu":
-                    future = gpu_executor.submit(calculate, dict_simulations[sim], local_paths, local_user_opts, True)
-                    gpu_futures.add(future)
-                elif device == "cpu":
-                    future = cpu_executor.submit(calculate, dict_simulations[sim], local_paths, local_user_opts)
-                    cpu_futures.add(future)
-                else:
-                    break
+                for future in done:
+                    sim = future_to_sim.pop(future)
+                    try:
+                        finish(sim, future.result(), None)
+                    except Exception as exc:
+                        finish(sim, None, exc)
 
-                pending.remove(sim)
-                future_to_sim[future] = sim
+                    # Update progress bar
+                    pbar.update(1)
+
+                    if future in gpu_futures:
+                        gpu_futures.remove(future)
+                    else:
+                        cpu_futures.remove(future)
+
+                    gpu_slot, placement = future_to_resources.pop(future)
+                    if host_cores is not None:
+                        host_cores.release(placement)
+                    if gpu_slots is not None and gpu_slot is not None:
+                        gpu_slots.release(gpu_slot)
+
+                # Drop simulations that can no longer run
+                skip_blocked(pbar)
+
+                # Assign ready work (initializations first) to any available slots
+                ready, _ = ready_simulations(pending, dependencies, succeeded, failed)
+                for sim in ready:
+                    # A pinned CPU run also needs enough free cores inside one socket
+                    cpu_free = len(cpu_futures) < n_cpu
+                    placement = None
+                    if cpu_free and cpu_cores is not None:
+                        placement = cpu_cores.acquire(n_threads)
+                        cpu_free = placement is not None
+
+                    device = choose_device(
+                        preferred_device,
+                        gpu_free=gpu_slots is not None and gpu_slots.free(),
+                        cpu_free=cpu_free,
+                    )
+                    if device != "cpu" and cpu_cores is not None:
+                        # Cores reserved above are not used
+                        cpu_cores.release(placement)
+
+                    gpu_slot = None
+                    if device == "gpu":
+                        gpu_slot, placement = gpu_slots.acquire(host_cores)  # type: ignore[union-attr]
+                        future = gpu_executor.submit(
+                            calculate, dict_simulations[sim], local_paths, local_user_opts, True, placement
+                        )
+                        gpu_futures.add(future)
+                    elif device == "cpu":
+                        future = cpu_executor.submit(
+                            calculate, dict_simulations[sim], local_paths, local_user_opts, False, placement
+                        )
+                        cpu_futures.add(future)
+                    else:
+                        break
+
+                    if placement is not None and (placement.pinned or placement.cuda_device is not None):
+                        sim_name = Path(dict_simulations[sim]).stem.replace("_model", "")
+                        logger.info(f"Simulation {sim_name} started on {placement.describe()}")
+
+                    pending.remove(sim)
+                    future_to_sim[future] = sim
+                    future_to_resources[future] = (gpu_slot, placement)
+        except KeyboardInterrupt:
+            logger.warning("Interrupted: stopping the running simulations")
+            pbar.close()
+            executors = [cpu_executor, gpu_executor] if n_gpu > 0 else [cpu_executor]
+            # All worker processes at once, with the BASEMENT runs they started
+            # (killing one worker makes the pool stop the others, which would orphan their runs)
+            workers = [pid for executor in executors for pid in list(getattr(executor, "_processes", None) or {})]
+            utils.kill_process_trees(workers)
+            for executor in executors:
+                executor.shutdown(wait=False, cancel_futures=True)
+            raise
 
         if n_gpu > 0:
             gpu_executor.shutdown()
@@ -394,6 +449,12 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         # Run simulations sequentially, in running order
         logger.info(f"Running {total_sims} simulations sequentially")
 
+        # Every run on the same cores of one socket
+        cpu_cores = cpu_topology.setup_resources(sim_opts, n_threads, 0).cpu_cores
+        placement = cpu_cores.acquire(n_threads) if cpu_cores is not None else None
+        if placement is not None:
+            logger.info(f"Simulations run on {placement.describe()}")
+
         while pending:
             skip_blocked(pbar)
             if not pending:
@@ -401,7 +462,7 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
 
             sim = pending.pop(0)
             try:
-                finish(sim, calculate(dict_simulations[sim], local_paths, user_opts), None)
+                finish(sim, calculate(dict_simulations[sim], local_paths, user_opts, False, placement), None)
             except Exception as exc:
                 finish(sim, None, exc)
 

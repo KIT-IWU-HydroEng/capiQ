@@ -140,7 +140,7 @@ def test_choose_device():
 
 
 def fake_calculate(fail: set[str], calls: list[str]):
-    def calculate(sim_config, paths, user_opts, gpu=False):
+    def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
         name = Path(sim_config).stem.removesuffix("_model")
         calls.append(name)
         if name in fail:

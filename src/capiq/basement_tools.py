@@ -13,6 +13,8 @@ import logging
 import os
 import subprocess
 
+from capiq import utils
+from capiq.cpu_topology import Placement, launch_env, pinned_command
 from user_defined import constants as c
 
 # Create a logger for basement_tools
@@ -100,6 +102,7 @@ def run_basement_exe(
     output_filepath: str | None = None,
     run_options: dict | None = None,
     extra_args: list[str] | None = None,
+    placement: Placement | None = None,
 ) -> dict[str, str | int]:
     """
     Execute a BASEMENT executable and capture its output.
@@ -113,6 +116,8 @@ def run_basement_exe(
                              ``verbose`` (bool) and ``basement_path`` (str).
         extra_args        : Additional command-line arguments
                             (e.g. ``["--backend", "omp", "--nthreads", "4"]``).
+        placement         : Optional CPU socket, cores and GPU card to run on
+                            (see ``capiq.cpu_topology``). None runs unpinned.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -142,16 +147,41 @@ def run_basement_exe(
     if extra_args:
         cmd.extend(extra_args)
 
+    # Pin to a CPU socket and select the GPU card, if a placement is given
+    command: str | list[str] = cmd
+    if placement is not None and placement.pinned:
+        command = pinned_command(cmd, placement)
+
     # Run the subprocess and capture both streams
     try:
-        completed = subprocess.run(
-            cmd,
-            capture_output=True,
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            env=launch_env(placement),
         )
     except OSError as exc:
         logging.error(f"Unable to start {exe_path!r}: {exc}")
         raise
+
+    try:
+        # Short waits: on Windows, Ctrl+C is not seen during a wait without timeout
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    except BaseException:
+        # Ctrl+C or shutdown: stop BASEMENT with its solver process, not only the direct child
+        utils.kill_process_trees([process.pid])
+        try:
+            process.communicate(timeout=10)
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            pass
+        raise
+    completed = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
 
     # Optional verbose logging (useful when you run manually)
     if run_options.get("verbose"):
@@ -164,7 +194,8 @@ def run_basement_exe(
 
     # Always log the full output on failure
     if completed.returncode != 0:
-        logging.error(f"'{exe_name}' failed (return code {completed.returncode}). Command: {' '.join(cmd)}")
+        where = f" on {placement.describe()}" if placement is not None else ""
+        logging.error(f"'{exe_name}' failed (return code {completed.returncode}){where}. Command: {' '.join(cmd)}")
         if completed.stderr:
             logging.error("--- STDERR ---")
             logging.error(completed.stderr)
@@ -186,6 +217,7 @@ def run_setup(
     config_filepath: str,
     setup_filepath: str,
     run_options: dict | None = None,
+    placement: Placement | None = None,
 ) -> dict[str, str | int]:
     """
     Execute the BASEMENT setup process.
@@ -195,6 +227,7 @@ def run_setup(
         setup_filepath  : Path where the generated setup file will be written.
         run_options     : Optional dict with keys like
                            ``verbose`` (bool) and ``basement_path`` (str).
+        placement       : Optional CPU socket, cores and GPU card to run on.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -204,6 +237,7 @@ def run_setup(
         input_files=[config_filepath],
         output_filepath=setup_filepath,
         run_options=run_options,
+        placement=placement,
     )
 
 
@@ -213,6 +247,7 @@ def run_simulation(
     results_filepath: str,
     run_options: dict | None = None,
     override_backend: str | None = None,
+    placement: Placement | None = None,
 ) -> dict[str, str | int]:
     """
     Execute a BASEMENT simulation.
@@ -225,6 +260,7 @@ def run_simulation(
                                ``verbose`` (bool), ``basement_path`` (str),
                                ``backend`` (str), and ``nthreads`` (int).
         override_backend    : Optional backend override. Default is 'omp'.
+        placement           : Optional CPU socket, cores and GPU card to run on.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -248,6 +284,7 @@ def run_simulation(
         output_filepath=results_filepath,
         run_options=run_options,
         extra_args=["--backend", backend, "--nthreads", str(nthreads)],
+        placement=placement,
     )
 
 
@@ -256,6 +293,7 @@ def run_results(
     results_filepath: str,
     results_output_file: str,
     run_options: dict | None = None,
+    placement: Placement | None = None,
 ) -> dict[str, str | int]:
     """
     Process BASEMENT simulation results.
@@ -266,6 +304,7 @@ def run_results(
         results_output_file   : Path to the output file for processed results.
         run_options           : Optional dict with keys like
                                  ``verbose`` (bool) and ``basement_path`` (str).
+        placement             : Optional CPU socket, cores and GPU card to run on.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -275,6 +314,7 @@ def run_results(
         input_files=[results_config_file, results_filepath],
         output_filepath=results_output_file,
         run_options=run_options,
+        placement=placement,
     )
 
 

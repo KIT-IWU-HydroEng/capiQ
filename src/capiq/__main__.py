@@ -7,6 +7,7 @@
 # Libraries
 import argparse
 import logging
+import sys
 import time
 
 import yaml
@@ -64,4 +65,9 @@ if __name__ == "__main__":
     with open("user_defined/user_options.yml") as file:
         user_opt = yaml.safe_load(file)
 
-    main(user_opt, logger_filename=args.logger_filename)
+    try:
+        main(user_opt, logger_filename=args.logger_filename)
+    except KeyboardInterrupt:
+        logging.getLogger("capiQ").warning("Interrupted by the user")
+        print("\ncapiQ interrupted: running simulations were stopped", file=sys.stderr)
+        sys.exit(130)
