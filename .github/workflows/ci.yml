@@ -52,6 +52,27 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: uv run --locked mypy
+      # Windows-only code paths are type-checked too
+      - run: uv run --locked mypy --platform win32
+
+  # ── pytest: on Linux and Windows (pinning and process handling differ) ─────
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      # numactl is the preferred pinning tool on Linux (taskset is the fallback and is tested too)
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y numactl
+      - run: uv sync --locked
+      - run: uv run --locked pytest
 
   # ── Bandit: common security issues in the code ─────────────────────────────
   security:
