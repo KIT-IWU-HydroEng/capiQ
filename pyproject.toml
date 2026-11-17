@@ -30,8 +30,9 @@ dependencies = [
     "tqdm>=4.66.0",
 ]
 
-[project.optional-dependencies]
-# Development tools, installed with: pip install -e ".[dev]"
+[dependency-groups]
+# Development tools (PEP 735). Installed by default with: uv sync
+# Without uv (pip >= 25.1): pip install -e . --group dev
 dev = [
     "bandit>=1.9",
     "mypy>=2.0",

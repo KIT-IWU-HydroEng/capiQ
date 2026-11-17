@@ -15,8 +15,9 @@ capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynami
 - `src/capiq/`: the capiQ package (I/O, queue creation, queue execution, utilities). `__main__.py` is the entry point.
 - `user_defined/`: user configuration files (`constants.py` and `user_options.yml`).
 - `example_files/`: example input files and support files, to use as templates for your own project, and a script that creates the example mesh.
-- `run_capiQ.bat`: runs capiQ with the virtual environment of the repository (Windows).
-- `tests/`: tests that run capiQ with the example files (see [Development](#development)).
+- `run_capiQ.bat` / `run_capiQ.sh`: run capiQ from the project root on Windows / Linux and macOS (with uv if it is installed, otherwise with `.venv`).
+- `pyproject.toml`: package metadata, dependencies and tool settings. `uv.lock` pins the exact version of every dependency, so all installations use the same environment.
+- `tests/`: tests that run capiQ with the example files (see [CONTRIBUTING.md](CONTRIBUTING.md#tests)).
 
 Directories used at run time, in the project root:
 
@@ -27,27 +28,49 @@ The mesh and support file folders are set in `user_defined/constants.py` and poi
 
 ## Installation
 
-Requires Python 3.11 or newer and [BASEMENT](https://basement.ethz.ch) 4.x.
+Requires [BASEMENT](https://basement.ethz.ch) 4.x and Python 3.11 or newer. The recommended way to install capiQ is with [uv](https://docs.astral.sh/uv/), which also takes care of Python.
 
-### 1. Create and activate a virtual environment
+### 1. Install uv
 
-**Windows:**
-```bash
-python -m venv .venv
-.venv\Scripts\activate
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-**Unix**
+**Linux and macOS:**
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for other methods (e.g. `winget`, `pipx` or `brew`).
 
 ### 2. Install capiQ
 
 From the project root:
 
 ```bash
+uv sync
+```
+
+This creates the virtual environment `.venv` in the project root and installs capiQ (in editable mode) with the exact dependency versions from `uv.lock`, including the development tools. uv uses any installed Python 3.11 or newer and downloads one only if none is found; to choose a version, add for example `--python 3.12`.
+
+You do not need to activate `.venv`: prefix commands with `uv run` (see [Usage](#usage)), and uv keeps the environment in sync with `uv.lock` before each command.
+
+### Without uv
+
+Create and activate a virtual environment, then install capiQ with pip. This uses the newest dependency versions allowed by `pyproject.toml` instead of the versions in `uv.lock`.
+
+**Windows:**
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+```
+
+**Linux and macOS:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 
@@ -82,7 +105,7 @@ If an initialization simulation fails, the scenarios that depend on it are skipp
 Tip: Templates for these files and folders can be found under the `example_files/` directory. The example mesh is not stored in the repository; create it before running the examples:
 
 ```bash
-python example_files/create_example_mesh.py
+uv run example_files/create_example_mesh.py
 ```
 
 This writes a light rectangular mesh (720 cells, two friction zones) to `example_files/meshes/rectangular-channel.2dm`.
@@ -92,10 +115,24 @@ This writes a light rectangular mesh (720 cells, two friction zones) to `example
 From the project root, so that capiQ finds `user_defined/`:
 
 ```bash
-python -m capiq
+uv run python -m capiq
 ```
 
-On Windows, you can also run `run_capiQ.bat`, which uses the `.venv` virtual environment in the project root (capiQ must be installed in it, see [Installation](#installation)). Use `--logger-filename` to choose the name of the log file.
+Or use the launcher script, which changes to the project root by itself and can therefore be started from anywhere:
+
+**Windows:**
+```bash
+run_capiQ.bat
+```
+
+**Linux and macOS:**
+```bash
+./run_capiQ.sh
+```
+
+The scripts use uv if it is installed and otherwise the `.venv` virtual environment in the project root (capiQ must then be installed in it, see [Without uv](#without-uv)). Arguments are passed on to capiQ, e.g. `--logger-filename` to choose the name of the log file.
+
+Without uv, run `python -m capiq` (and `python example_files/create_example_mesh.py`) with the virtual environment activated.
 
 ### Outputs
 
@@ -110,42 +147,9 @@ Simulations whose results already exist in `output/` are skipped, so an interrup
 
 - BASEMENT 4.x [[1]](#1)[[2]](#2)
 
-## Development
+## Contributing
 
-Install the package in editable mode with the development tools, and set up the pre-commit hooks:
-
-```bash
-pip install -e ".[dev]"
-pre-commit install
-```
-
-| Task                      | Command             |
-| ------------------------- | ------------------- |
-| Run the tests             | `pytest tests`      |
-| Lint                      | `ruff check .`      |
-| Format                    | `ruff format .`     |
-| Type check                | `mypy`              |
-| Security scan             | `bandit -r src -ll` |
-| Audit dependencies        | `pip-audit .`       |
-
-These checks, except the tests, also run on GitHub Actions for every push and pull request (see [.github/workflows/](.github/workflows/)).
-
-### Tests
-
-The tests in `tests/` check that capiQ runs with the example files:
-
-- `test_example_queue` checks that the example scenarios find their meshes and support files. It does not need BASEMENT.
-- `test_example_run` runs all example scenarios with BASEMENT and checks that their results are written. It is skipped if BASEMENT is not found at `BASEMENT_PATH` in `user_defined/constants.py`.
-
-To run them, install the development tools (see above) and run, from the project root:
-
-```bash
-pytest tests
-```
-
-Add `-v` to see the result of each test, or `-k example_queue` to run only the test that does not need BASEMENT. The tests create the example mesh and copy the example files into a temporary folder, so they do not change `example_files/` and you do not need to create the mesh first.
-
-Because they need BASEMENT, the tests only run locally, not on GitHub Actions.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, the checks and tests, managing dependencies with uv, and the commit and pull request conventions.
 
 ## Citation
 
