@@ -61,4 +61,8 @@ def test_example_run(example_project):
     for model_file in (EXAMPLE_FILES / "input").glob("*_model.json"):
         name = model_file.stem.removesuffix("_model")
         for suffix in ["_setup.h5", "_results.h5", "_results.xdmf"]:
-            assert (example_project / "output" / f"{name}{suffix}").exists(), f"missing {name}{suffix}"
+            assert (example_project / "output" / name / f"{name}{suffix}").exists(), f"missing {name}/{name}{suffix}"
+        # The xdmf refers to its h5 files by name only, so the folder can be opened anywhere in ParaView
+        xdmf = (example_project / "output" / name / f"{name}_results.xdmf").read_text(encoding="utf-8")
+        assert str(example_project) not in xdmf
+        assert str(example_project).replace("\\", "/") not in xdmf

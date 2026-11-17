@@ -139,13 +139,21 @@ def test_choose_device():
     assert calculate_sim_queue.choose_device("gpu", gpu_free=False, cpu_free=False) is None
 
 
+def write_results(sim_config, paths: dict) -> None:
+    """Writes a fake final results file where the queue looks for it."""
+    subfolders = paths.get("output_subfolders", True)
+    results = calculate_sim_queue.results_file(sim_config, Path(paths["folder_output"]), subfolders)
+    results.parent.mkdir(parents=True, exist_ok=True)
+    results.write_bytes(b"results")
+
+
 def fake_calculate(fail: set[str], calls: list[str]):
     def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
         name = Path(sim_config).stem.removesuffix("_model")
         calls.append(name)
         if name in fail:
             raise RuntimeError("simulation failed")
-        (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
+        write_results(sim_config, paths)
         return 0.0, None
 
     return calculate
@@ -183,9 +191,8 @@ def test_nothing_to_run(project, monkeypatch, caplog):
     """All results exist: the queue stops before detecting hardware or starting workers."""
     paths = functions_io.setup_directories()
     queue = create_sim_queue.create_queue(paths)
-    for model in queue["simulations_to_run"]:
-        name = Path(model).stem.removesuffix("_model")
-        (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
+    for model in queue["simulations_to_run"].values():
+        write_results(model, paths)
 
     def fail(*args, **kwargs):
         raise AssertionError("must not be called")
@@ -233,7 +240,7 @@ def test_finished_log_line(project, monkeypatch, caplog):
 
     def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
         name = Path(sim_config).stem.removesuffix("_model")
-        (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
+        write_results(sim_config, paths)
         rts = basement_tools.RtsStats(1055.0, 820.4, 6119.2) if name == "SCENARIO_Q001" else None
         return 2556.28, rts
 
@@ -247,3 +254,57 @@ def test_finished_log_line(project, monkeypatch, caplog):
     # No progress lines in BASEMENT's output: only the time is logged
     assert "Simulation SCENARIO_Q002 finished. Elapsed time: 2556.28 seconds (00d 00h 42min 36s)" in messages
     assert not any(m.startswith("Simulation SCENARIO_Q002 real-time speedup") for m in messages)
+
+
+def test_output_layout_paths(tmp_path):
+    """One folder per simulation by default, all files directly in the output folder otherwise."""
+    model = "input/SCENARIO_Q001_model.json"
+    assert calculate_sim_queue.simulation_folder(model, tmp_path) == tmp_path / "SCENARIO_Q001"
+    assert calculate_sim_queue.results_file(model, tmp_path) == tmp_path / "SCENARIO_Q001" / INIT_FILE
+    assert calculate_sim_queue.simulation_folder(model, tmp_path, subfolders=False) == tmp_path
+    assert calculate_sim_queue.results_file(model, tmp_path, subfolders=False) == tmp_path / INIT_FILE
+
+
+@pytest.mark.parametrize("subfolders", [True, False])
+def test_output_layout_queue(project, monkeypatch, caplog, subfolders):
+    """Results land in the selected layout, initializations are found there, and a rerun skips them."""
+    paths = functions_io.setup_directories()
+    queue = create_sim_queue.create_queue(paths)
+    calls: list[str] = []
+    monkeypatch.setattr(calculate_sim_queue, "calculate", fake_calculate(set(), calls))
+    user_opt = {"output_subfolders": subfolders, "simulation_options": {"parallel": False, "overwrite": False}}
+
+    calculate_sim_queue.calculate_queue(queue, paths, user_opt)
+
+    folder_output = Path(paths["folder_output"])
+    expected = folder_output / "SCENARIO_Q001" / INIT_FILE if subfolders else folder_output / INIT_FILE
+    assert expected.exists()
+    assert (paths["folder_initialization"] / INIT_FILE).read_bytes() == b"results"
+
+    caplog.set_level("INFO")
+    calculate_sim_queue.calculate_queue(queue, paths, user_opt)
+    assert len(calls) == 4
+    assert "Nothing to run" in caplog.text
+
+
+@pytest.mark.parametrize("separator", ["/", "\\"])
+def test_make_xdmf_relative(tmp_path, separator):
+    """Absolute paths to the xdmf's own folder become bare file names; other paths stay."""
+    folder = tmp_path / "SCENARIO_Q001"
+    folder.mkdir()
+    own = str(folder).replace("\\", separator).replace("/", separator)
+    other = "/data" + str(folder).replace("\\", "/")
+    xdmf = folder / "SCENARIO_Q001_results.xdmf"
+    xdmf.write_text(
+        f'<DataItem Format="HDF">{own}{separator}SCENARIO_Q001_results_aux.h5:/CellsAll/HydState</DataItem>\n'
+        f'<DataItem Format="HDF">{other}/elsewhere.h5:/x</DataItem>\n',
+        encoding="utf-8",
+    )
+
+    assert basement_tools.make_xdmf_relative(str(xdmf))
+    text = xdmf.read_text(encoding="utf-8")
+    assert ">SCENARIO_Q001_results_aux.h5:/CellsAll/HydState<" in text
+    assert f">{other}/elsewhere.h5:/x<" in text
+
+    # Already relative: left untouched
+    assert not basement_tools.make_xdmf_relative(str(xdmf))

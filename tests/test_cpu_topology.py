@@ -199,8 +199,9 @@ def test_queue_places_runs(project, monkeypatch, caplog):  # noqa: F811  (pytest
             running.append(placement)
             seen.append((gpu, placement))
         time.sleep(0.05)
-        name = Path(sim_config).stem.removesuffix("_model")
-        (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
+        results = calculate_sim_queue.results_file(sim_config, Path(paths["folder_output"]))
+        results.parent.mkdir(parents=True, exist_ok=True)
+        results.write_bytes(b"results")
         with lock:
             running.remove(placement)
         return 0.0, None
@@ -213,7 +214,7 @@ def test_queue_places_runs(project, monkeypatch, caplog):  # noqa: F811  (pytest
     calculate_sim_queue.calculate_queue(queue, paths, {"simulation_options": options})
 
     assert len(seen) == 4 and clashes == []
-    assert len(list(Path(paths["folder_output"]).glob("*_results.h5"))) == 4
+    assert len(list(Path(paths["folder_output"]).glob("*/*_results.h5"))) == 4
     for gpu, placement in seen:
         assert placement.pinned
         if gpu:

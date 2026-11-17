@@ -346,6 +346,46 @@ def run_results(
     )
 
 
+def make_xdmf_relative(xdmf_filepath: str) -> bool:
+    """
+    Makes the h5 references of an xdmf file relative to its own folder.
+
+    BMv4_results is given absolute paths, so the xdmf may point to its h5 files with the
+    full folder path. Without it, the folder can be moved or copied and still opened in ParaView.
+    References to files in other folders are left as they are.
+
+    Args:
+        xdmf_filepath: Path to the xdmf file written by BMv4_results.
+
+    Returns:
+        True if the file was changed.
+    """
+    try:
+        with open(xdmf_filepath, encoding="utf-8") as file:
+            text = file.read()
+    except OSError as exc:
+        logger.warning(f"Could not read {xdmf_filepath} to make its paths relative: {exc}")
+        return False
+
+    folder = os.path.dirname(os.path.abspath(xdmf_filepath))
+    # The folder in both separator spellings, followed by a separator,
+    # and not the tail of a longer path ("/data/home/..." is left alone for "/home/...")
+    parts = [re.escape(part) for part in re.split(r"[\\/]+", folder) if part]
+    prefix = r"(?<![\w.\\/-])/?" + r"[\\/]+".join(parts) + r"[\\/]+"
+    flags = re.IGNORECASE if os.name == "nt" else 0
+    relative = re.sub(prefix, "", text, flags=flags)
+
+    if relative == text:
+        return False
+    try:
+        with open(xdmf_filepath, "w", encoding="utf-8") as file:
+            file.write(relative)
+    except OSError as exc:
+        logger.warning(f"Could not make the paths in {xdmf_filepath} relative: {exc}")
+        return False
+    return True
+
+
 def model_update_filepaths(filepath_config: str, filepaths_support_files: dict) -> None:
     """
     Updates the file paths in the JSON configuration file.

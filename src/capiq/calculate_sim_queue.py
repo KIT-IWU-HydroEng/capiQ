@@ -25,33 +25,54 @@ from capiq.cpu_topology import Placement
 logger = logging.getLogger("run_simulations")
 
 
-def results_file(sim_config: Path | str, folder_output: Path) -> Path:
+def simulation_folder(sim_config: Path | str, folder_output: Path, subfolders: bool = True) -> Path:
+    """
+    Returns the folder holding the output files of a simulation.
+
+    Args:
+        sim_config: Path or name of the "*_model.json" file for the simulation.
+        folder_output: Path to the output folder.
+        subfolders: True puts each simulation in its own folder "output/<NAME>/",
+                    False puts all files directly in the output folder.
+
+    Returns:
+        "output/<NAME>" or "output".
+    """
+    if not subfolders:
+        return Path(folder_output)
+    basename = Path(sim_config).stem.replace("_model", "")
+    return Path(folder_output) / basename
+
+
+def results_file(sim_config: Path | str, folder_output: Path, subfolders: bool = True) -> Path:
     """
     Returns the path of the final results file of a simulation.
 
     Args:
         sim_config: Path or name of the "*_model.json" file for the simulation.
         folder_output: Path to the output folder.
+        subfolders: Whether each simulation has its own folder in the output folder.
 
     Returns:
-        Path to "<NAME>_results.h5" in the output folder.
+        Path to "<NAME>_results.h5" in the simulation's output folder.
     """
     basename = Path(sim_config).stem.replace("_model", "")
-    return folder_output / f"{basename}_results.h5"
+    return simulation_folder(sim_config, folder_output, subfolders) / f"{basename}_results.h5"
 
 
-def simulation_completed(sim_config: Path | str, folder_output: Path) -> bool:
+def simulation_completed(sim_config: Path | str, folder_output: Path, subfolders: bool = True) -> bool:
     """
     Checks whether a simulation already produced its final results file.
 
     Args:
         sim_config: Path to the "*_model.json" file for the simulation.
         folder_output: Path to the output folder.
+        subfolders: Whether each simulation has its own folder in the output folder.
 
     Returns:
         True if the "*_results.h5" output already exists.
     """
-    return results_file(sim_config, folder_output).exists()
+    return results_file(sim_config, folder_output, subfolders).exists()
 
 
 def calculate(
@@ -88,19 +109,23 @@ def calculate(
     # json files
     folder_input = Path(paths["folder_input"])
     folder_output = Path(paths["folder_output"])
+    subfolders = paths.get("output_subfolders", True)
+    # All files of this simulation go here: "output/<NAME>/" or "output/"
+    folder_sim = simulation_folder(sim_config, folder_output, subfolders)
+    folder_sim.mkdir(parents=True, exist_ok=True)
 
     run_config = folder_input / f"{basename}_simulation.json"
     results_config = paths["results_filepath"]
 
     # h5 files
-    setup_path = folder_output / f"{basename}_setup.h5"
-    results_path = folder_output / f"{basename}_results.h5"
+    setup_path = folder_sim / f"{basename}_setup.h5"
+    results_path = folder_sim / f"{basename}_results.h5"
 
     # xdmf files
-    xdmf_path = folder_output / f"{basename}_results.xdmf"
+    xdmf_path = folder_sim / f"{basename}_results.xdmf"
 
     # BASEMENT's own output (setup, simulation and results), started fresh for every run
-    basement_log = folder_output / f"{basename}_basement.log"
+    basement_log = folder_sim / f"{basename}_basement.log"
     basement_log.unlink(missing_ok=True)
 
     # Update support file paths
@@ -110,7 +135,10 @@ def calculate(
     # Initialization files produced in this run are read from the output folder,
     # files from the initialization folder take priority
     local_paths.update(
-        {name: str(results_file(producer, folder_output)) for name, producer in paths.get("produced", {}).items()}
+        {
+            name: str(results_file(producer, folder_output, subfolders))
+            for name, producer in paths.get("produced", {}).items()
+        }
     )
     local_paths.update(paths.get("initialization_files", {}).copy())
     bt.model_update_filepaths(sim_config_str, local_paths)
@@ -152,11 +180,13 @@ def calculate(
         placement=placement,
         log_filepath=str(basement_log),
     )
+    # The xdmf finds its h5 files next to it, so the folder can be moved and opened in ParaView
+    bt.make_xdmf_relative(str(xdmf_path))
 
-    # Copies json files to the output folder
+    # Copies json files to the simulation's output folder
     if user_opts.get("store_configs", False):
-        shutil.copy2(sim_config, folder_output / f"{basename}_model.json")
-        shutil.copy2(run_config, folder_output / f"{basename}_simulation.json")
+        shutil.copy2(sim_config, folder_sim / f"{basename}_model.json")
+        shutil.copy2(run_config, folder_sim / f"{basename}_simulation.json")
 
     # End time
     t_end = time.time()
@@ -232,7 +262,7 @@ def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> Non
         if producer != sim:
             continue
         # Stored under the name the model files ask for, so later runs find it directly
-        source = results_file(producer, Path(paths["folder_output"]))
+        source = results_file(producer, Path(paths["folder_output"]), paths.get("output_subfolders", True))
         target = Path(folder_initialization) / results_name
         if target.exists():
             continue
@@ -267,6 +297,9 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     local_paths["support_files"] = dict_files["support_files"].copy()
     local_paths["initialization_files"] = dict_files.get("initialization_files", {}).copy()
     local_paths["produced"] = produced.copy()
+    # One folder per simulation in the output folder (default), or all files directly in it
+    subfolders = bool(user_opts.get("output_subfolders", True))
+    local_paths["output_subfolders"] = subfolders
 
     # Extract user options
     sim_opts = user_opts["simulation_options"]
@@ -282,7 +315,9 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     if not overwrite:
         folder_output = Path(paths["folder_output"])
         already_done = [
-            name for name, filepath in dict_simulations.items() if simulation_completed(filepath, folder_output)
+            name
+            for name, filepath in dict_simulations.items()
+            if simulation_completed(filepath, folder_output, subfolders)
         ]
         for name in already_done:
             del dict_simulations[name]

@@ -1,5 +1,6 @@
 # General options
 store_configs: True   # Store the configuration files (.json) of the simulations
+output_subfolders: True  # One folder per simulation (output/<NAME>/), ready to open in ParaView; False: all files directly in output/
 
 simulation_options:
   # Running options
