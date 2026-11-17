@@ -130,6 +130,15 @@ def test_ready_simulations():
     assert ready == ["d"] and blocked == ["b"]
 
 
+def test_choose_device():
+    assert calculate_sim_queue.choose_device("gpu", gpu_free=True, cpu_free=True) == "gpu"
+    assert calculate_sim_queue.choose_device("cpu", gpu_free=True, cpu_free=True) == "cpu"
+    # Only one device free: it is used whatever the preference
+    assert calculate_sim_queue.choose_device("gpu", gpu_free=False, cpu_free=True) == "cpu"
+    assert calculate_sim_queue.choose_device("cpu", gpu_free=True, cpu_free=False) == "gpu"
+    assert calculate_sim_queue.choose_device("gpu", gpu_free=False, cpu_free=False) is None
+
+
 def fake_calculate(fail: set[str], calls: list[str]):
     def calculate(sim_config, paths, user_opts, gpu=False):
         name = Path(sim_config).stem.removesuffix("_model")

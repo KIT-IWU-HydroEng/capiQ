@@ -14,6 +14,7 @@ simulation_options:
   n_gpus: 0                 # Number of GPUs processes
   n_sim_cpus: 2             # Number of CPUs processes
   n_sim_threads: 4          # Number of threads for each CPU process
+  preferred_device: gpu     # Device used when both a GPU and a CPU process are free (gpu or cpu)
 
   # Forces the overwriting of the output files if they already exist
   overwrite: false           # Overwrite existing output files

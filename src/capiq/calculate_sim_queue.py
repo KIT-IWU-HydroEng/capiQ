@@ -180,6 +180,27 @@ def ready_simulations(
     return ready, blocked
 
 
+def choose_device(preferred: str, gpu_free: bool, cpu_free: bool) -> str | None:
+    """
+    Chooses the worker for the next simulation.
+
+    Args:
+        preferred: "gpu" or "cpu", used when both a GPU and a CPU worker are free.
+        gpu_free: Whether a GPU worker is free.
+        cpu_free: Whether a CPU worker is free.
+
+    Returns:
+        "gpu", "cpu", or None if no worker is free.
+    """
+    if gpu_free and cpu_free:
+        return preferred
+    if gpu_free:
+        return "gpu"
+    if cpu_free:
+        return "cpu"
+    return None
+
+
 def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> None:
     """
     Copies the results of a simulation used as initialization to the initialization folder,
@@ -299,6 +320,14 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         logger.info(f"Using {n_gpu} GPU(s) and {n_cpu} CPU(s) for simulations")
         logger.info(f"Total number of workers: {n_gpu + n_cpu}")
 
+        # Device used when both a GPU and a CPU worker are free
+        preferred_device = str(user_opts["simulation_options"].get("preferred_device", "gpu")).lower()
+        if preferred_device not in ("gpu", "cpu"):
+            logger.warning(f"Invalid preferred device specified: {preferred_device}. Falling back to gpu.")
+            preferred_device = "gpu"
+        if n_gpu > 0 and n_cpu > 0:
+            logger.info(f"Preferred device when both are free: {preferred_device}")
+
         # Overrides backend and nthreads
         local_user_opts = user_opts.copy()
 
@@ -340,10 +369,15 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
             # Assign ready work (initializations first) to any available slots
             ready, _ = ready_simulations(pending, dependencies, succeeded, failed)
             for sim in ready:
-                if n_gpu > 0 and len(gpu_futures) < n_gpu:
+                device = choose_device(
+                    preferred_device,
+                    gpu_free=n_gpu > 0 and len(gpu_futures) < n_gpu,
+                    cpu_free=len(cpu_futures) < n_cpu,
+                )
+                if device == "gpu":
                     future = gpu_executor.submit(calculate, dict_simulations[sim], local_paths, local_user_opts, True)
                     gpu_futures.add(future)
-                elif len(cpu_futures) < n_cpu:
+                elif device == "cpu":
                     future = cpu_executor.submit(calculate, dict_simulations[sim], local_paths, local_user_opts)
                     cpu_futures.add(future)
                 else:
