@@ -28,7 +28,7 @@ def setup_directories(overwrite: bool = False):
     folder_output.mkdir(parents=True, exist_ok=True)
     folder_meshes.mkdir(parents=True, exist_ok=True)
     folder_support.mkdir(parents=True, exist_ok=True)
-    folder_initialization.mkdir(parents=True, exist_ok=True)
+    # The initialization folder is only created when an initialization result has to be stored in it
 
     error_conditions = [
         not folder_input.exists()

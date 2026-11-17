@@ -187,6 +187,7 @@ def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> Non
         if target.exists():
             continue
         try:
+            target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             logger.info(f"Initialization file {results_name} copied to {folder_initialization}")
         except OSError as exc:

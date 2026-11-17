@@ -153,7 +153,11 @@ def read_initialization_files(folder_initialization: str) -> dict[str, str]:
     Returns:
         dict: dictionary {file name: file path} (empty if there are none)
     """
-    initialization_files = {}
+    initialization_files: dict[str, str] = {}
+    if not os.path.isdir(folder_initialization):
+        logger.info("No initialization folder found")
+        return initialization_files
+
     for file in os.listdir(folder_initialization):
         filepath = os.path.join(folder_initialization, file)
         if os.path.isfile(filepath):

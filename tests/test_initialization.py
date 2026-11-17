@@ -44,6 +44,7 @@ def set_initial(model_file: Path, init_file: str) -> None:
 def test_initialization_from_folder(project):
     """(1) A file present in the initialization folder is used as it is."""
     paths = functions_io.setup_directories()
+    paths["folder_initialization"].mkdir()
     (paths["folder_initialization"] / INIT_FILE).write_bytes(b"")
 
     queue = create_sim_queue.create_queue(paths)
@@ -61,6 +62,19 @@ def test_initialization_from_input(project):
     assert queue["produced"] == {INIT_FILE: "SCENARIO_Q001_model.json"}
     assert queue["dependencies"]["SCENARIO2_Q001_model.json"] == {"SCENARIO_Q001_model.json"}
     assert next(iter(queue["simulations_to_run"])) == "SCENARIO_Q001_model.json"
+
+
+def test_no_initialization_folder_without_initializations(project, monkeypatch):
+    """The initialization folder is not created when no simulation needs initialization."""
+    for name in ["SCENARIO2_Q001", "SCENARIO2_Q002"]:
+        shutil.copy2(EXAMPLE_FILES / "input" / f"{name}_model.json", project / "input" / f"{name}_model.json")
+    paths = functions_io.setup_directories()
+    queue = create_sim_queue.create_queue(paths)
+    monkeypatch.setattr(calculate_sim_queue, "calculate", fake_calculate(set(), []))
+
+    calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
+
+    assert not paths["folder_initialization"].exists()
 
 
 def test_initialization_missing(project):
