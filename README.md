@@ -108,7 +108,7 @@ Tip: Templates for these files and folders can be found under the `example_files
 uv run example_files/create_example_mesh.py
 ```
 
-This writes a light rectangular mesh (720 cells, two friction zones) to `example_files/meshes/rectangular-channel.2dm`.
+This writes a light triangular mesh of a rectangular channel to `example_files/meshes/rectangular-channel.2dm`.
 
 ### 2. Run
 

@@ -3,7 +3,7 @@
 # Author: Luiz Oliveira
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
 
-"""Create the rectangular mesh used by the example files.
+"""Create the triangular mesh of a rectangular channel used by the example files.
 
 Run from the project root before running the examples:
 
@@ -11,7 +11,7 @@ Run from the project root before running the examples:
 
 The mesh is written to example_files/meshes/rectangular-channel.2dm (or to the path given as argument).
 
-Domain: x from -90 to 90 m (flow direction) and y from 0 to 5 m, split into cells of 5 m x 0.5 m (720 triangles).
+Domain: x from -90 to 90 m (flow direction) and y from 0 to 5 m, split into 360 rectangles of 5 m x 0.5 m, each split into two right triangles (720 elements).
 Two friction zones: material 1 is the main channel (y < 2 m), material 2 the floodplain (y > 2 m).
 The cross-section is flat, with a longitudinal bed slope of 0.0005, as the uniform_out boundary assumes.
 The node strings match the STRINGDEF names of the example model files and run from y = 0 m towards y = 5 m.
