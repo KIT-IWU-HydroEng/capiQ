@@ -168,16 +168,40 @@ def read_initialization_files(folder_initialization: str) -> dict[str, str]:
     return initialization_files
 
 
+def find_producer(required: str, dict_simulation: dict[str, str]) -> str | None:
+    """
+    This function finds the simulation in the input folder that produces an initialization file.
+
+    "<NAME>_results.h5" and "<NAME>.h5" are both produced by "<NAME>_model.json". File names are
+    compared without regard to case, as Windows does.
+
+    Args:
+        required (str): name of the initialization file
+        dict_simulation (dict): {model file name: model file path} of the simulations to run
+
+    Returns:
+        str | None: model file name of the producing simulation, or None if there is none
+    """
+    models = {sim.lower(): sim for sim in dict_simulation}
+    name = required.lower()
+    for suffix in ["_results.h5", ".h5"]:
+        if name.endswith(suffix):
+            candidate = name.removesuffix(suffix) + "_model.json"
+            if candidate in models:
+                return models[candidate]
+    return None
+
+
 def resolve_initializations(
     dict_simulation: dict[str, str], initialization_files: dict[str, str]
-) -> tuple[dict[str, set[str]], dict[str, str]]:
+) -> tuple[dict[str, set[str]], dict[str, str], dict[str, str]]:
     """
     This function resolves the initialization files required by the simulations.
 
-    Each required file is looked up:
+    Each required file is looked up (file names compared without regard to case):
         1. in the initialization folder: the file is used as it is;
-        2. in the input folder: "<NAME>_results.h5" is produced by "<NAME>_model.json",
-           which must then run before the simulations that need it;
+        2. in the input folder: "<NAME>_results.h5" or "<NAME>.h5" is produced by
+           "<NAME>_model.json", which must then run before the simulations that need it;
         3. otherwise an error is raised.
 
     Args:
@@ -185,23 +209,23 @@ def resolve_initializations(
         initialization_files (dict): {file name: file path} of the initialization folder
 
     Returns:
-        tuple: dependencies {model file name: set of model file names to run first}, and
-               produced files {results file name: model file name that produces it}
+        tuple: dependencies {model file name: set of model file names to run first},
+               produced files {required file name: model file name that produces it}, and
+               found files {required file name: file path in the initialization folder}
     """
     dependencies: dict[str, set[str]] = {sim: set() for sim in dict_simulation}
     produced: dict[str, str] = {}
+    available = {name.lower(): filepath for name, filepath in initialization_files.items()}
+    found: dict[str, str] = {}
     missing = []
 
     for sim, path in dict_simulation.items():
         for required in bt.initialization_files_from_json(path):
-            if required in initialization_files:
+            if required.lower() in available:
+                found[required] = available[required.lower()]
                 continue
 
-            producer = None
-            if required.endswith("_results.h5"):
-                candidate = required.removesuffix("_results.h5") + "_model.json"
-                if candidate in dict_simulation:
-                    producer = candidate
+            producer = find_producer(required, dict_simulation)
 
             if producer is None:
                 missing.append((sim, required))
@@ -221,7 +245,7 @@ def resolve_initializations(
             f"folder produces them: {details}"
         )
 
-    return dependencies, produced
+    return dependencies, produced, found
 
 
 def order_simulations(dict_simulation: dict[str, str], dependencies: dict[str, set[str]]) -> list[str]:
@@ -284,8 +308,8 @@ def create_queue(paths: dict) -> dict:
     support_files = read_support_files(paths["folder_support"])
 
     # Resolves the initialization files: initialization folder first, then simulations in the input folder
-    initialization_files = read_initialization_files(paths["folder_initialization"])
-    dependencies, produced = resolve_initializations(simulations_to_run, initialization_files)
+    available_files = read_initialization_files(paths["folder_initialization"])
+    dependencies, produced, initialization_files = resolve_initializations(simulations_to_run, available_files)
     order = order_simulations(simulations_to_run, dependencies)
     simulations_to_run = {sim: simulations_to_run[sim] for sim in order}
     if produced:

@@ -64,6 +64,29 @@ def test_initialization_from_input(project):
     assert next(iter(queue["simulations_to_run"])) == "SCENARIO_Q001_model.json"
 
 
+def test_initialization_name_matching(project, monkeypatch):
+    """A "<NAME>.h5" in any case is produced by "<NAME>_model.json" and stored under the requested name."""
+    for name in ["SCENARIO2_Q001", "SCENARIO2_Q002"]:
+        set_initial(project / "input" / f"{name}_model.json", "scenario_q001.H5")
+    paths = functions_io.setup_directories()
+    queue = create_sim_queue.create_queue(paths)
+
+    assert queue["produced"] == {"scenario_q001.H5": "SCENARIO_Q001_model.json"}
+
+    monkeypatch.setattr(calculate_sim_queue, "calculate", fake_calculate(set(), []))
+    calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
+    assert (paths["folder_initialization"] / "scenario_q001.H5").read_bytes() == b"results"
+
+    # Next run: found in the initialization folder, whatever the case of the requested name
+    for name in ["SCENARIO2_Q001", "SCENARIO2_Q002"]:
+        set_initial(project / "input" / f"{name}_model.json", "SCENARIO_Q001.h5")
+    queue = create_sim_queue.create_queue(paths)
+    assert queue["produced"] == {}
+    assert queue["initialization_files"] == {
+        "SCENARIO_Q001.h5": str(paths["folder_initialization"] / "scenario_q001.H5")
+    }
+
+
 def test_no_initialization_folder_without_initializations(project, monkeypatch):
     """The initialization folder is not created when no simulation needs initialization."""
     for name in ["SCENARIO2_Q001", "SCENARIO2_Q002"]:

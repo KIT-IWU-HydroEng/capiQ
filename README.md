@@ -94,10 +94,10 @@ In the `NAME_model.json` files, capiQ only uses the file names of meshes and sup
 
 #### Initialization simulations
 
-A scenario can start from the results of another one (`"INITIAL": {"type": "continue", "file": "BASE_Q001_results.h5", "time": 1000.0}` in `HYDRAULICS` or `TURBULENCE`). Before running, capiQ looks for every such file:
+A scenario can start from the results of another one (`"INITIAL": {"type": "continue", "file": "BASE_Q001_results.h5", "time": 1000.0}` in `HYDRAULICS` or `TURBULENCE`). Before running, capiQ looks for every such file (file names are compared without regard to case):
 
 1. In the initialization folder: the file is used as it is.
-2. Otherwise, in `input/`: `BASE_Q001_results.h5` is produced by `BASE_Q001_model.json`. That simulation runs first, the scenarios that need it start once it has finished, and its results are copied to the initialization folder (created at that point if it does not exist) so later runs find them there.
+2. Otherwise, in `input/`: `BASE_Q001_results.h5` or `BASE_Q001.h5` is produced by `BASE_Q001_model.json`. That simulation runs first, the scenarios that need it start once it has finished, and its results are copied to the initialization folder (created at that point if it does not exist) under the requested name, so later runs find them there.
 3. Otherwise, capiQ stops with an error listing the missing files.
 
 If an initialization simulation fails, the scenarios that depend on it are skipped and the others still run; both are listed at the end of the log.

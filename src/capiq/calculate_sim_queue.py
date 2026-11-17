@@ -23,6 +23,21 @@ from capiq import utils
 logger = logging.getLogger("run_simulations")
 
 
+def results_file(sim_config: Path | str, folder_output: Path) -> Path:
+    """
+    Returns the path of the final results file of a simulation.
+
+    Args:
+        sim_config: Path or name of the "*_model.json" file for the simulation.
+        folder_output: Path to the output folder.
+
+    Returns:
+        Path to "<NAME>_results.h5" in the output folder.
+    """
+    basename = Path(sim_config).stem.replace("_model", "")
+    return folder_output / f"{basename}_results.h5"
+
+
 def simulation_completed(sim_config: Path | str, folder_output: Path) -> bool:
     """
     Checks whether a simulation already produced its final results file.
@@ -34,9 +49,7 @@ def simulation_completed(sim_config: Path | str, folder_output: Path) -> bool:
     Returns:
         True if the "*_results.h5" output already exists.
     """
-    basename = Path(sim_config).stem.replace("_model", "")
-    h5_path = folder_output / f"{basename}_results.h5"
-    return h5_path.exists()
+    return results_file(sim_config, folder_output).exists()
 
 
 def calculate(
@@ -88,7 +101,9 @@ def calculate(
     local_paths.update(paths["support_files"].copy())
     # Initialization files produced in this run are read from the output folder,
     # files from the initialization folder take priority
-    local_paths.update({name: str(folder_output / name) for name in paths.get("produced", {})})
+    local_paths.update(
+        {name: str(results_file(producer, folder_output)) for name, producer in paths.get("produced", {}).items()}
+    )
     local_paths.update(paths.get("initialization_files", {}).copy())
     bt.model_update_filepaths(sim_config_str, local_paths)
 
@@ -172,7 +187,7 @@ def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> Non
 
     Args:
         sim: Model file name of the finished simulation.
-        produced: {results file name: model file name that produces it}.
+        produced: {required file name: model file name that produces it}.
         paths: Dictionary containing the paths to the folders.
     """
     folder_initialization = paths.get("folder_initialization")
@@ -182,7 +197,8 @@ def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> Non
     for results_name, producer in produced.items():
         if producer != sim:
             continue
-        source = Path(paths["folder_output"]) / results_name
+        # Stored under the name the model files ask for, so later runs find it directly
+        source = results_file(producer, Path(paths["folder_output"]))
         target = Path(folder_initialization) / results_name
         if target.exists():
             continue
