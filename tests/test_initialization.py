@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from capiq import calculate_sim_queue, create_sim_queue, functions_io
+from capiq import basement_tools, calculate_sim_queue, create_sim_queue, functions_io, utils
 from user_defined import constants
 
 EXAMPLE_FILES = Path(__file__).resolve().parent.parent / "example_files"
@@ -146,7 +146,7 @@ def fake_calculate(fail: set[str], calls: list[str]):
         if name in fail:
             raise RuntimeError("simulation failed")
         (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
-        return 0.0
+        return 0.0, None
 
     return calculate
 
@@ -198,3 +198,52 @@ def test_nothing_to_run(project, monkeypatch, caplog):
     calculate_sim_queue.calculate_queue(queue, paths, {"simulation_options": options})
 
     assert "Nothing to run" in caplog.text
+
+
+def test_format_duration():
+    assert utils.format_duration(2556.28) == "00d 00h 42min 36s"
+    assert utils.format_duration(2 * 86400 + 3 * 3600 + 4 * 60 + 59.9) == "02d 03h 04min 59s"
+
+
+def test_rts_stats():
+    # BASEMENT's RTS is a running average: twice as fast in the first half as in the second
+    # (first half 200, second half 100: overall 1 / (0.5 / 200 + 0.5 / 100) = 133.3)
+    stdout = (
+        " -> Progress: 0/2, dt = 0.001 [s], RTS = 0\n"
+        " -> simulation started!\n"
+        " -> Progress: 1/2, dt = 0.47 [s], RTS = 200\n"
+        " -> Progress: 2/2, dt = 0.05 [s], RTS = 133.333333\n"
+        " -> simulation finished at t = 3000.000000 (cpu-time = 2.8485s)\n"
+    )
+    stats = basement_tools.rts_stats(stdout)
+    assert stats.final == pytest.approx(133.33, abs=0.01)
+    assert (stats.slowest, stats.fastest) == (pytest.approx(100), pytest.approx(200))
+
+    # Constant speed: the range is a single value
+    constant = "".join(f" -> Progress: {k}/4, dt = 0.3 [s], RTS = 500\n" for k in range(5))
+    assert basement_tools.rts_stats(constant) == basement_tools.RtsStats(500.0, 500.0, 500.0)
+
+    assert basement_tools.rts_stats("BASEMENT failed") is None
+
+
+def test_finished_log_line(project, monkeypatch, caplog):
+    """The finished line gives the time in seconds and as days/hours/minutes, and the RTS."""
+    paths = functions_io.setup_directories()
+    queue = create_sim_queue.create_queue(paths)
+
+    def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
+        name = Path(sim_config).stem.removesuffix("_model")
+        (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
+        rts = basement_tools.RtsStats(1055.0, 820.4, 6119.2) if name == "SCENARIO_Q001" else None
+        return 2556.28, rts
+
+    monkeypatch.setattr(calculate_sim_queue, "calculate", calculate)
+    caplog.set_level("INFO")
+    calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Simulation SCENARIO_Q001 finished. Elapsed time: 2556.28 seconds (00d 00h 42min 36s)" in messages
+    assert "Simulation SCENARIO_Q001 real-time speedup: RTS = 1055.0 (range 820.4-6119.2)" in messages
+    # No progress lines in BASEMENT's output: only the time is logged
+    assert "Simulation SCENARIO_Q002 finished. Elapsed time: 2556.28 seconds (00d 00h 42min 36s)" in messages
+    assert not any(m.startswith("Simulation SCENARIO_Q002 real-time speedup") for m in messages)

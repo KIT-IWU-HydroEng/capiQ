@@ -62,6 +62,14 @@ def timeit(
     return decorator
 
 
+def format_duration(seconds: float) -> str:
+    """Formats a duration as "01d 02h 03min 04s" (whole seconds)."""
+    minutes, secs = divmod(int(seconds), 60)
+    days, minutes = divmod(minutes, 24 * 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{days:02d}d {hours:02d}h {minutes:02d}min {secs:02d}s"
+
+
 def kill_process_trees(pids: list[int]) -> None:
     """
     Kills processes and all the processes they started.

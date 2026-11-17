@@ -60,7 +60,7 @@ def calculate(
     user_opts: dict,
     gpu: bool = False,
     placement: Placement | None = None,
-) -> float:
+) -> tuple[float, bt.RtsStats | None]:
     """
     Run the simulation.
 
@@ -73,7 +73,7 @@ def calculate(
         placement: CPU socket, cores and GPU card to run on; None runs unpinned.
 
     Returns:
-        Elapsed time in seconds.
+        Elapsed time in seconds, and BASEMENT's real-time speedup (None without progress lines).
     """
     # Convert to Path if string
     sim_config = Path(sim_config)
@@ -99,6 +99,10 @@ def calculate(
     # xdmf files
     xdmf_path = folder_output / f"{basename}_results.xdmf"
 
+    # BASEMENT's own output (setup, simulation and results), started fresh for every run
+    basement_log = folder_output / f"{basename}_basement.log"
+    basement_log.unlink(missing_ok=True)
+
     # Update support file paths
     local_paths = {}
     local_paths.update(paths["meshes"].copy())
@@ -112,31 +116,32 @@ def calculate(
     bt.model_update_filepaths(sim_config_str, local_paths)
 
     # Run setup
-    bt.run_setup(sim_config_str, str(setup_path), user_opts["simulation_options"], placement=placement)
+    bt.run_setup(
+        sim_config_str,
+        str(setup_path),
+        user_opts["simulation_options"],
+        placement=placement,
+        log_filepath=str(basement_log),
+    )
 
     # Run the simulation
+    backend = None
     if gpu:
         backend = user_opts["simulation_options"].get("gpu_backend", "cudaC")
         if backend not in ["cuda", "cudaC"]:
             logger.warning(f"Invalid GPU backend specified: {backend}. Falling back to cudaC.")
             backend = "cudaC"
 
-        bt.run_simulation(
-            str(run_config),
-            str(setup_path),
-            str(results_path),
-            user_opts["simulation_options"],
-            override_backend=backend,
-            placement=placement,
-        )
-    else:
-        bt.run_simulation(
-            str(run_config),
-            str(setup_path),
-            str(results_path),
-            user_opts["simulation_options"],
-            placement=placement,
-        )
+    output = bt.run_simulation(
+        str(run_config),
+        str(setup_path),
+        str(results_path),
+        user_opts["simulation_options"],
+        override_backend=backend,
+        placement=placement,
+        log_filepath=str(basement_log),
+    )
+    rts = bt.rts_stats(str(output["stdout"]))
 
     # Run the results
     bt.run_results(
@@ -145,6 +150,7 @@ def calculate(
         str(xdmf_path),
         user_opts["simulation_options"],
         placement=placement,
+        log_filepath=str(basement_log),
     )
 
     # Copies json files to the output folder
@@ -155,7 +161,7 @@ def calculate(
     # End time
     t_end = time.time()
 
-    return t_end - t_start
+    return t_end - t_start, rts
 
 
 def ready_simulations(
@@ -304,11 +310,18 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
             skipped.append(sim)
             pbar.update(1)
 
-    def finish(sim: str, elapsed_time: float | None, exc: BaseException | None) -> None:
-        """Records the outcome of a simulation."""
+    def finish(sim: str, outcome: tuple[float, bt.RtsStats | None] | None, exc: BaseException | None) -> None:
+        """Records the outcome of a simulation: (elapsed seconds, real-time speedup) from calculate."""
         sim_name = Path(dict_simulations[sim]).stem.replace("_model", "")
-        if exc is None:
-            logger.info(f"Simulation {sim_name} finished. Elapsed time: {elapsed_time:.2f} seconds")
+        if exc is None and outcome is not None:
+            elapsed_time, rts = outcome
+            duration = utils.format_duration(elapsed_time)
+            logger.info(f"Simulation {sim_name} finished. Elapsed time: {elapsed_time:.2f} seconds ({duration})")
+            if rts is not None:
+                logger.info(
+                    f"Simulation {sim_name} real-time speedup: RTS = {rts.final:.1f} "
+                    f"(range {rts.slowest:.1f}-{rts.fastest:.1f})"
+                )
             succeeded.add(sim)
             store_initialization(sim, produced, local_paths)
         else:

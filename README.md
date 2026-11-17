@@ -141,7 +141,8 @@ Without uv, run `python -m capiq` (and `python example_files/create_example_mesh
 Upon successful execution, the pipeline generates:
 
 * Results stored in the `output/` directory
-* A timestamped log file named `capiQ_YYYY-MM-DD_HH-MM.log` in the project root.
+* A timestamped log file named `capiQ_YYYY-MM-DD_HH-MM.log` in the project root. For each simulation it gives the elapsed time and BASEMENT's real-time speedup (RTS, overall and the range during the run).
+* BASEMENT's own output for each simulation in `output/<NAME>_basement.log`: setup, simulation (with its progress lines) and results, each with its command and return code, also when BASEMENT fails.
 
 Simulations whose results already exist in `output/` are skipped, so an interrupted queue can be restarted. Set `overwrite: true` in `user_options.yml` to run them again. Ctrl+C stops the queue together with the running BASEMENT processes.
 

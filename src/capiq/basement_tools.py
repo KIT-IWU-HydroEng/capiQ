@@ -11,7 +11,9 @@ if __name__ == "__main__":
 import json
 import logging
 import os
+import re
 import subprocess
+from dataclasses import dataclass
 
 from capiq import utils
 from capiq.cpu_topology import Placement, launch_env, pinned_command
@@ -96,6 +98,19 @@ def basement_validate_paths(
         raise FileNotFoundError(f"{error_message} {invalid_paths}")
 
 
+def append_basement_log(log_filepath: str, completed: subprocess.CompletedProcess) -> None:
+    """Appends a BASEMENT program's command, return code and output to a text file."""
+    try:
+        with open(log_filepath, "a", encoding="utf-8") as file:
+            file.write(f"===== {' '.join(completed.args)}\n===== return code {completed.returncode}\n")
+            file.write(completed.stdout or "")
+            if completed.stderr:
+                file.write("----- stderr -----\n" + completed.stderr)
+            file.write("\n")
+    except OSError as exc:
+        logger.warning(f"Could not write the BASEMENT log {log_filepath}: {exc}")
+
+
 def run_basement_exe(
     exe_name: str,
     input_files: list[str] | None = None,
@@ -103,6 +118,7 @@ def run_basement_exe(
     run_options: dict | None = None,
     extra_args: list[str] | None = None,
     placement: Placement | None = None,
+    log_filepath: str | None = None,
 ) -> dict[str, str | int]:
     """
     Execute a BASEMENT executable and capture its output.
@@ -118,6 +134,8 @@ def run_basement_exe(
                             (e.g. ``["--backend", "omp", "--nthreads", "4"]``).
         placement         : Optional CPU socket, cores and GPU card to run on
                             (see ``capiq.cpu_topology``). None runs unpinned.
+        log_filepath      : Optional text file the command and BASEMENT's output are
+                            appended to (also when the program fails).
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -179,6 +197,8 @@ def run_basement_exe(
             pass
         raise
     completed = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+    if log_filepath:
+        append_basement_log(log_filepath, completed)
 
     # Optional verbose logging (useful when you run manually)
     if run_options.get("verbose"):
@@ -200,7 +220,8 @@ def run_basement_exe(
             logging.info("--- STDOUT (extra info) ---")
             logging.info(completed.stdout)
 
-        raise Exception(f"{exe_name} failed. Check the log for details.")
+        see = f" and {log_filepath}" if log_filepath else ""
+        raise Exception(f"{exe_name} failed. Check the log{see} for details.")
 
     # Hand the captured output back to the caller
     return {
@@ -215,6 +236,7 @@ def run_setup(
     setup_filepath: str,
     run_options: dict | None = None,
     placement: Placement | None = None,
+    log_filepath: str | None = None,
 ) -> dict[str, str | int]:
     """
     Execute the BASEMENT setup process.
@@ -225,6 +247,7 @@ def run_setup(
         run_options     : Optional dict with keys like
                            ``verbose`` (bool) and ``basement_path`` (str).
         placement       : Optional CPU socket, cores and GPU card to run on.
+        log_filepath    : Optional text file BASEMENT's output is appended to.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -235,6 +258,7 @@ def run_setup(
         output_filepath=setup_filepath,
         run_options=run_options,
         placement=placement,
+        log_filepath=log_filepath,
     )
 
 
@@ -245,6 +269,7 @@ def run_simulation(
     run_options: dict | None = None,
     override_backend: str | None = None,
     placement: Placement | None = None,
+    log_filepath: str | None = None,
 ) -> dict[str, str | int]:
     """
     Execute a BASEMENT simulation.
@@ -258,6 +283,7 @@ def run_simulation(
                                ``backend`` (str), and ``nthreads`` (int).
         override_backend    : Optional backend override. Default is 'omp'.
         placement           : Optional CPU socket, cores and GPU card to run on.
+        log_filepath        : Optional text file BASEMENT's output is appended to.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -280,8 +306,10 @@ def run_simulation(
         input_files=[run_config_filepath, setup_filepath],
         output_filepath=results_filepath,
         run_options=run_options,
-        extra_args=["--backend", backend, "--nthreads", str(nthreads)],
+        # --progress: progress lines with the real-time speedup, kept in the BASEMENT log
+        extra_args=["--backend", backend, "--nthreads", str(nthreads), "--progress"],
         placement=placement,
+        log_filepath=log_filepath,
     )
 
 
@@ -291,6 +319,7 @@ def run_results(
     results_output_file: str,
     run_options: dict | None = None,
     placement: Placement | None = None,
+    log_filepath: str | None = None,
 ) -> dict[str, str | int]:
     """
     Process BASEMENT simulation results.
@@ -302,6 +331,7 @@ def run_results(
         run_options           : Optional dict with keys like
                                  ``verbose`` (bool) and ``basement_path`` (str).
         placement             : Optional CPU socket, cores and GPU card to run on.
+        log_filepath          : Optional text file BASEMENT's output is appended to.
 
     Returns:
         dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
@@ -312,6 +342,7 @@ def run_results(
         output_filepath=results_output_file,
         run_options=run_options,
         placement=placement,
+        log_filepath=log_filepath,
     )
 
 
@@ -364,3 +395,46 @@ def model_update_filepaths(filepath_config: str, filepaths_support_files: dict) 
     # Save updated config
     with open(filepath_config, "w") as file:
         json.dump(config_data, file, indent=4)
+
+
+@dataclass(frozen=True)
+class RtsStats:
+    """Real-time speedup (simulated time / computing time) of a simulation."""
+
+    final: float  # Over the whole run: BASEMENT's last progress value
+    slowest: float  # Slowest speed between two progress lines
+    fastest: float  # Fastest speed between two progress lines
+
+
+def rts_stats(stdout: str) -> RtsStats | None:
+    """
+    Real-time speedup from the progress lines of BMv4_simulation --progress.
+
+    BASEMENT prints "-> Progress: 37/100, dt = 0.29 [s], RTS = 3215.4", where RTS is a running
+    average since the start. Line k/n has covered k/n of the simulated time, so its computing time
+    is (k/n) / RTS in units of the simulated time span; the speed between two lines is the
+    simulated time gained divided by the computing time spent (the time span cancels out).
+
+    Args:
+        stdout: Captured output of BMv4_simulation with --progress.
+
+    Returns:
+        The final RTS and the slowest and fastest speed between progress lines, or None
+        without progress lines.
+    """
+    points = [
+        (int(k) / int(n), float(rts))
+        for k, n, rts in re.findall(r"Progress: (\d+)/(\d+),.*?RTS = ([-+\d.eE]+)", stdout)
+        if int(n) > 0 and int(k) > 0 and float(rts) > 0
+    ]
+    if not points:
+        return None
+
+    speeds = []
+    previous_fraction, previous_time = 0.0, 0.0
+    for fraction, rts in points:
+        time = fraction / rts  # computing time so far, in units of the simulated time span
+        if fraction > previous_fraction and time > previous_time:
+            speeds.append((fraction - previous_fraction) / (time - previous_time))
+            previous_fraction, previous_time = fraction, time
+    return RtsStats(points[-1][1], min(speeds, default=points[-1][1]), max(speeds, default=points[-1][1]))

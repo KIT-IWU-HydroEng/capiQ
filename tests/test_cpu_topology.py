@@ -171,9 +171,9 @@ def test_run_basement_exe_pinned(monkeypatch):
     command = calls[-1][0]
     if sys.platform == "win32":
         assert command.startswith('cmd /d /c "start "" /B /WAIT /NODE 1 /AFFINITY 0xf ')
-        assert '"--nthreads" "4" & exit"' in command
+        assert '"--nthreads" "4" "--progress" & exit"' in command
     else:
-        assert command[0] in ("numactl", "taskset") and command[-2:] == ["--nthreads", "4"]
+        assert command[0] in ("numactl", "taskset") and command[-3:] == ["--nthreads", "4", "--progress"]
     assert f"BMv4_simulation{utils.EXE_SUFFIX}" in str(command)
 
 
@@ -203,7 +203,7 @@ def test_queue_places_runs(project, monkeypatch, caplog):  # noqa: F811  (pytest
         (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
         with lock:
             running.remove(placement)
-        return 0.0
+        return 0.0, None
 
     monkeypatch.setattr(calculate_sim_queue, "calculate", calculate)
     options = {"parallel": True, "overwrite": False, "n_gpus": 2, "n_sim_cpus": 2, "n_sim_threads": 4}
@@ -406,3 +406,31 @@ def test_kill_process_trees_real():
     utils.kill_process_trees([root.pid])
     root.wait(timeout=10)
     assert not [pid for pid in tree if alive(pid)]
+
+
+def test_basement_log(tmp_path, monkeypatch):
+    """BASEMENT's output goes to the log file, also when the program fails."""
+    outputs = iter(
+        [(0, "simulation finished at t = 10 (cpu-time = 1s)\n", ""), (3, "reading mesh\n", "Error: bad mesh\n")]
+    )
+
+    class FakePopen:
+        pid = 1
+
+        def __init__(self, command, **kwargs):
+            self.returncode, self.out, self.err = next(outputs)
+
+        def communicate(self, timeout=None):
+            return self.out, self.err
+
+    monkeypatch.setattr(basement_tools, "basement_validate_paths", lambda paths: None)
+    monkeypatch.setattr(basement_tools.subprocess, "Popen", FakePopen)
+    log = tmp_path / "X_basement.log"
+
+    basement_tools.run_simulation("run.json", "setup.h5", "results.h5", {"n_sim_threads": 4}, log_filepath=str(log))
+    with pytest.raises(Exception, match="X_basement.log"):
+        basement_tools.run_results("results.json", "results.h5", "results.xdmf", log_filepath=str(log))
+
+    text = log.read_text(encoding="utf-8")
+    assert "BMv4_simulation" in text and "return code 0" in text and "simulation finished at t = 10" in text
+    assert "BMv4_results" in text and "return code 3" in text and "Error: bad mesh" in text
