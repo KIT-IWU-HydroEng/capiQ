@@ -566,6 +566,8 @@ def setup_resources(sim_opts: dict, n_threads: int, n_gpu: int) -> Resources:
 
     gpus = None
     if n_gpu > 0:
+        # Reading the cards' sockets from Windows' device properties takes a few seconds
+        logger.info("Detecting GPUs and their CPU sockets (set gpu_numa_nodes to skip the socket detection)")
         detected = detect_gpus(sim_opts.get("gpu_numa_nodes"))
         if detected is None:
             logger.warning("nvidia-smi not found: the GPU card of each GPU simulation is left to BASEMENT")

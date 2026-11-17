@@ -289,6 +289,10 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     # Total number of simulations
     total_sims = len(dict_simulations)
     pending = list(dict_simulations)
+    if not pending:
+        # Nothing left: no hardware detection, no worker processes
+        logger.info("Nothing to run: all simulations are already completed (set overwrite: true to run them again)")
+        return
 
     def skip_blocked(pbar) -> None:
         """Removes the pending simulations whose initialization failed."""

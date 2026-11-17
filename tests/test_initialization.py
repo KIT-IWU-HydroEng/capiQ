@@ -177,3 +177,24 @@ def test_sequential_skips_dependents_of_failed_initialization(project, monkeypat
 
     assert sorted(calls) == ["SCENARIO_Q001", "SCENARIO_Q002"]
     assert not (paths["folder_initialization"] / INIT_FILE).exists()
+
+
+def test_nothing_to_run(project, monkeypatch, caplog):
+    """All results exist: the queue stops before detecting hardware or starting workers."""
+    paths = functions_io.setup_directories()
+    queue = create_sim_queue.create_queue(paths)
+    for model in queue["simulations_to_run"]:
+        name = Path(model).stem.removesuffix("_model")
+        (Path(paths["folder_output"]) / f"{name}_results.h5").write_bytes(b"results")
+
+    def fail(*args, **kwargs):
+        raise AssertionError("must not be called")
+
+    monkeypatch.setattr(calculate_sim_queue, "calculate", fail)
+    monkeypatch.setattr(calculate_sim_queue.cpu_topology, "setup_resources", fail)
+    caplog.set_level("INFO")
+    options = {"parallel": True, "overwrite": False, "n_gpus": 1, "n_sim_cpus": 2}
+
+    calculate_sim_queue.calculate_queue(queue, paths, {"simulation_options": options})
+
+    assert "Nothing to run" in caplog.text
