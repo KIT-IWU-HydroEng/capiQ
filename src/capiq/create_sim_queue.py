@@ -168,6 +168,33 @@ def read_initialization_files(folder_initialization: str) -> dict[str, str]:
     return initialization_files
 
 
+def find_initialization_file(required: str, available: dict[str, str]) -> str | None:
+    """
+    This function finds an initialization file in the initialization folder.
+
+    "<NAME>_results.h5" and "<NAME>.h5" stand for the same results, so a model file asking for one
+    also accepts the other. The exact name is preferred. File names are compared without regard
+    to case, as Windows does.
+
+    Args:
+        required (str): name of the initialization file asked for by the model file
+        available (dict): {lower-case file name: file path} of the initialization folder
+
+    Returns:
+        str | None: path of the file found, or None if there is none
+    """
+    name = required.lower()
+    candidates = [name]
+    if name.endswith("_results.h5"):
+        candidates.append(name.removesuffix("_results.h5") + ".h5")
+    elif name.endswith(".h5"):
+        candidates.append(name.removesuffix(".h5") + "_results.h5")
+    for candidate in candidates:
+        if candidate in available:
+            return available[candidate]
+    return None
+
+
 def find_producer(required: str, dict_simulation: dict[str, str]) -> str | None:
     """
     This function finds the simulation in the input folder that produces an initialization file.
@@ -199,7 +226,8 @@ def resolve_initializations(
     This function resolves the initialization files required by the simulations.
 
     Each required file is looked up (file names compared without regard to case):
-        1. in the initialization folder: the file is used as it is;
+        1. in the initialization folder: the file is used as it is, "<NAME>_results.h5" and
+           "<NAME>.h5" standing in for each other;
         2. in the input folder: "<NAME>_results.h5" or "<NAME>.h5" is produced by
            "<NAME>_model.json", which must then run before the simulations that need it;
         3. otherwise an error is raised.
@@ -221,8 +249,11 @@ def resolve_initializations(
 
     for sim, path in dict_simulation.items():
         for required in bt.initialization_files_from_json(path):
-            if required.lower() in available:
-                found[required] = available[required.lower()]
+            filepath = find_initialization_file(required, available)
+            if filepath is not None:
+                if os.path.basename(filepath).lower() != required.lower():
+                    logger.info(f"Initialization file {required} required by {sim}: using {os.path.basename(filepath)}")
+                found[required] = filepath
                 continue
 
             producer = find_producer(required, dict_simulation)

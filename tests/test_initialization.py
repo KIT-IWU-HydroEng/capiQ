@@ -54,6 +54,30 @@ def test_initialization_from_folder(project):
     assert queue["initialization_files"] == {INIT_FILE: str(paths["folder_initialization"] / INIT_FILE)}
 
 
+def test_initialization_from_folder_other_name(project):
+    """A model asking for "<NAME>_results.h5" uses "<NAME>.h5" from the initialization folder, and back."""
+    paths = functions_io.setup_directories()
+    paths["folder_initialization"].mkdir()
+    (paths["folder_initialization"] / "SCENARIO_Q001.h5").write_bytes(b"")
+
+    queue = create_sim_queue.create_queue(paths)
+
+    assert queue["produced"] == {}
+    assert queue["initialization_files"] == {INIT_FILE: str(paths["folder_initialization"] / "SCENARIO_Q001.h5")}
+
+    # The exact name is preferred when both are there
+    (paths["folder_initialization"] / INIT_FILE).write_bytes(b"")
+    queue = create_sim_queue.create_queue(paths)
+    assert queue["initialization_files"] == {INIT_FILE: str(paths["folder_initialization"] / INIT_FILE)}
+
+    # And "<NAME>.h5" asked for, "<NAME>_results.h5" found
+    (paths["folder_initialization"] / "SCENARIO_Q001.h5").unlink()
+    for name in ["SCENARIO2_Q001", "SCENARIO2_Q002"]:
+        set_initial(project / "input" / f"{name}_model.json", "SCENARIO_Q001.h5")
+    queue = create_sim_queue.create_queue(paths)
+    assert queue["initialization_files"] == {"SCENARIO_Q001.h5": str(paths["folder_initialization"] / INIT_FILE)}
+
+
 def test_initialization_from_input(project):
     """(2) A missing file produced by a simulation in input/ makes that simulation run first."""
     paths = functions_io.setup_directories()
