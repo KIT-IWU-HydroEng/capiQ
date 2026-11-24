@@ -392,7 +392,7 @@ def make_xdmf_relative(xdmf_filepath: str) -> bool:
     # The folder in both separator spellings, followed by a separator,
     # and not the tail of a longer path ("/data/home/..." is left alone for "/home/...")
     parts = [re.escape(part) for part in re.split(r"[\\/]+", folder) if part]
-    prefix = r"(?<![\w.\\/-])/?" + r"[\\/]+".join(parts) + r"[\\/]+"
+    prefix = r"(?<![\w.\\/-])[\\/]?" + r"[\\/]+".join(parts) + r"[\\/]+"
     flags = re.IGNORECASE if os.name == "nt" else 0
     relative = re.sub(prefix, "", text, flags=flags)
 
