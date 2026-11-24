@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capiQ"
-version = "0.1.0"                        # MAJOR.MINOR.PATCH, see https://semver.org
+version = "0.2.0"                        # MAJOR.MINOR.PATCH, see https://semver.org
 description = "Computational Automation Pipeline for Hydro-morphodynamic simulation Queues"
 readme = "README.md"
 requires-python = ">=3.11"
