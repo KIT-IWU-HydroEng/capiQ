@@ -13,6 +13,14 @@ authors:
     given-names: "Luiz"
     affiliation: "Institute for Water and Environment (IWU), Karlsruhe Institute of Technology (KIT)"
     orcid: "https://orcid.org/0000-0002-5734-8337"
+doi: 10.5281/zenodo.24505637
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24505637
+    description: "Concept DOI: all versions, resolves to the latest release"
+  - type: doi
+    value: 10.5281/zenodo.24505638
+    description: "Version 0.2.0"
 repository-code: "https://github.com/KIT-IWU-HydroEng/capiQ"
 keywords:
   - hydraulics
@@ -21,4 +29,5 @@ keywords:
   - simulation queue
   - hydro-morphodynamics
 version: 0.2.0
+date-released: "2026-11-24"
 license: MIT

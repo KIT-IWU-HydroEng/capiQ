@@ -8,6 +8,7 @@ capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynami
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
   <a href="https://github.com/KIT-IWU-HydroEng/capiQ/releases/latest"><img src="https://img.shields.io/github/v/release/KIT-IWU-HydroEng/capiQ" alt="Latest release"></a>
   <a href="https://github.com/KIT-IWU-HydroEng/capiQ/commits/main"><img src="https://img.shields.io/github/last-commit/KIT-IWU-HydroEng/capiQ" alt="Last commit"></a>
+  <a href="https://doi.org/10.5281/zenodo.24505637"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24505637.svg" alt="DOI"></a>
 </p>
 
 ## What This Repository Contains
@@ -182,7 +183,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the develo
 
 ## Citation
 
-If you use this software in your research, please cite it as described in [CITATION.cff](CITATION.cff) (GitHub shows a *Cite this repository* button).
+If you use this software in your research, please cite it as described in [CITATION.cff](CITATION.cff) (GitHub shows a *Cite this repository* button). Each release is archived on Zenodo: [10.5281/zenodo.24505637](https://doi.org/10.5281/zenodo.24505637) always points to the latest version, and the Zenodo page lists the DOI of each version.
 
 ## References
 
