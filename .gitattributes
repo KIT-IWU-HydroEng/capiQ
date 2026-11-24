@@ -1,0 +1,4 @@
+# Shell scripts must keep LF line endings to run on Unix, even when checked out on Windows
+*.sh text eol=lf
+# Windows batch files need CRLF line endings for cmd.exe to parse labels reliably
+*.bat text eol=crlf

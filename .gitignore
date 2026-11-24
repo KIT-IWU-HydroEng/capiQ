@@ -224,3 +224,6 @@ meshes/
 
 # Keep the example input files (the example mesh is created by example_files/create_example_mesh.py)
 !example_files/input
+
+# Temporary file of the dependency audit (see CONTRIBUTING.md)
+requirements-audit.txt

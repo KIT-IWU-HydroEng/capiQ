@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from capiq import basement_tools, create_sim_queue, functions_io
+from capiq import basement_tools, create_sim_queue, functions_io, utils
 from capiq.__main__ import main
 from user_defined import constants
 
 EXAMPLE_FILES = Path(__file__).resolve().parent.parent / "example_files"
-BASEMENT_FOUND = (Path(constants.BASEMENT_PATH) / "BMv4_setup.exe").exists()
+BASEMENT_FOUND = (Path(constants.BASEMENT_PATH) / f"BMv4_setup{utils.EXE_SUFFIX}").exists()
 
 # The example mesh is not part of the repository: it is created by this script
 write_rectangular_mesh = runpy.run_path(str(EXAMPLE_FILES / "create_example_mesh.py"))["write_rectangular_mesh"]
@@ -61,4 +61,8 @@ def test_example_run(example_project):
     for model_file in (EXAMPLE_FILES / "input").glob("*_model.json"):
         name = model_file.stem.removesuffix("_model")
         for suffix in ["_setup.h5", "_results.h5", "_results.xdmf"]:
-            assert (example_project / "output" / f"{name}{suffix}").exists(), f"missing {name}{suffix}"
+            assert (example_project / "output" / name / f"{name}{suffix}").exists(), f"missing {name}/{name}{suffix}"
+        # The xdmf refers to its h5 files by name only, so the folder can be opened anywhere in ParaView
+        xdmf = (example_project / "output" / name / f"{name}_results.xdmf").read_text(encoding="utf-8")
+        assert str(example_project) not in xdmf
+        assert str(example_project).replace("\\", "/") not in xdmf

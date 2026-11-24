@@ -15,15 +15,23 @@ BASEMENT_PATH : str
 MESH_FOLDER : pathlib.Path
     Directory containing mesh input files.
 SUPPORT_FOLDER : pathlib.Path
-    Directory containing supplementary discharge and initialization data files.
+    Directory containing supplementary discharge files.
+INITIALIZATION_FOLDER : pathlib.Path
+    Directory containing initialization results files (``<NAME>_results.h5``) used by
+    ``INITIAL`` sections of the model files. Missing files are produced by running
+    ``input/<NAME>_model.json`` first, and the results are copied here for later runs.
 """
 
 import pathlib
+
+from capiq.utils import DEFAULT_BASEMENT_PATH
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # Constants for the project
 # The paths can also be full paths if needed, using pathlib allows for relative paths that are more flexible across different environments.
-BASEMENT_PATH = r"C:\Program Files\BASEMENT 4.3.0\bin"
+# Default: C:\Program Files\BASEMENT 4.3.0\bin on Windows, /usr/bin on Linux (BASEMENT's .deb package).
+BASEMENT_PATH = DEFAULT_BASEMENT_PATH
 MESH_FOLDER = PROJECT_ROOT / "example_files" / "meshes"
-SUPPORT_FOLDER = PROJECT_ROOT / "example_files" / "support_files" # Contains discharge files and initialization files for the simulations.
+SUPPORT_FOLDER = PROJECT_ROOT / "example_files" / "support_files" # Contains discharge files for the simulations.
+INITIALIZATION_FOLDER = PROJECT_ROOT / "example_files" / "initialization" # Contains initialization (<NAME>_results.h5) files.

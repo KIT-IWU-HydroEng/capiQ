@@ -21,12 +21,14 @@ def setup_directories(overwrite: bool = False):
     folder_output = path_project / "output"
     folder_meshes = Path(c.MESH_FOLDER) or path_project / "meshes"
     folder_support = Path(c.SUPPORT_FOLDER) or path_project / "support_files"
+    folder_initialization = Path(getattr(c, "INITIALIZATION_FOLDER", None) or path_project / "initialization")
 
     if overwrite and folder_output.exists():
         shutil.rmtree(folder_output)
     folder_output.mkdir(parents=True, exist_ok=True)
     folder_meshes.mkdir(parents=True, exist_ok=True)
     folder_support.mkdir(parents=True, exist_ok=True)
+    # The initialization folder is only created when an initialization result has to be stored in it
 
     error_conditions = [
         not folder_input.exists()
@@ -56,7 +58,10 @@ def setup_directories(overwrite: bool = False):
         ├── Q001.txt
         ├── Q002.txt
         ├── Q003.txt
-        ├── SCENARIO1_DISCHARGE1_Initialization.h5
+        └── ...
+
+        initialization (optional)
+        ├── SCENARIO0_DISCHARGE1_results.h5  * or produced from input/SCENARIO0_DISCHARGE1_model.json
         └── ...
         """
         raise Exception(exception_message)
@@ -67,6 +72,7 @@ def setup_directories(overwrite: bool = False):
         "folder_output": folder_output,
         "folder_meshes": folder_meshes,
         "folder_support": folder_support,
+        "folder_initialization": folder_initialization,
     }
 
 
