@@ -1,7 +1,5 @@
 # capiQ — Computational Automation Pipeline for Hydro-morphodynamic simulation Queues
 
-capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynamic simulation Queues, designed to configure, manage, and execute large simulation batches efficiently.
-
 <p align="center">
   <a href="https://github.com/KIT-IWU-HydroEng/capiQ/actions/workflows/ci.yml"><img src="https://github.com/KIT-IWU-HydroEng/capiQ/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
@@ -10,6 +8,8 @@ capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynami
   <a href="https://github.com/KIT-IWU-HydroEng/capiQ/commits/main"><img src="https://img.shields.io/github/last-commit/KIT-IWU-HydroEng/capiQ" alt="Last commit"></a>
   <a href="https://doi.org/10.5281/zenodo.24505637"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24505637.svg" alt="DOI"></a>
 </p>
+
+capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynamic simulation Queues, designed to configure, manage, and execute large simulation batches efficiently.
 
 ## What This Repository Contains
 
