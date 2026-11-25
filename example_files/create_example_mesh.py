@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright 2026, Copyright Owner: Karlsruhe Institute of Technology (KIT)
-# Author: Luiz Oliveira
+# Authors: Luiz E.D. de Oliveira, Mário J. Franca, Davide Vanzo
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
+# DOI: https://doi.org/10.5281/zenodo.24505637
 
 """Create the triangular mesh of a rectangular channel used by the example files.
 

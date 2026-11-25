@@ -9,14 +9,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capiQ"
-version = "0.2.0"                        # MAJOR.MINOR.PATCH, see https://semver.org
+version = "0.2.1"                        # MAJOR.MINOR.PATCH, see https://semver.org
 description = "Computational Automation Pipeline for Hydro-morphodynamic simulation Queues"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-    { name = "Luiz Oliveira", email = "luiz.oliveira@kit.edu" },
+    { name = "Luiz E.D. de Oliveira", email = "luiz.oliveira@kit.edu" },
+    { name = "Mário J. Franca" },
+    { name = "Davide Vanzo" },
 ]
 keywords = ["hydraulics", "river engineering", "BASEMENT", "simulation queue", "hydro-morphodynamics"]
 classifiers = [

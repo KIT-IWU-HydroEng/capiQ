@@ -9,10 +9,18 @@ abstract: >-
   simulation Queues, designed to configure, manage, and execute large batches of
   BASEMENT simulations efficiently.
 authors:
-  - family-names: "Oliveira"
-    given-names: "Luiz"
-    affiliation: "Institute for Water and Environment (IWU), Karlsruhe Institute of Technology (KIT)"
+  - family-names: "de Oliveira"
+    given-names: "Luiz E.D."
+    affiliation: "Institute for Water and Environment (IWU), Karlsruhe Institute of Technology (KIT); Department of Geosciences - Eberhard Karls University of Tübingen (UT), Tübingen, Germany"
     orcid: "https://orcid.org/0000-0002-5734-8337"
+  - family-names: "Franca"
+    given-names: "Mário J."
+    affiliation: "Institute for Water and Environment (IWU), Karlsruhe Institute of Technology (KIT)"
+    orcid: "https://orcid.org/0000-0002-0265-8581"
+  - family-names: "Vanzo"
+    given-names: "Davide"
+    affiliation: "Institute for Water and Environment (IWU), Karlsruhe Institute of Technology (KIT)"
+    orcid: "https://orcid.org/0000-0002-2033-9197"
 doi: 10.5281/zenodo.24505637
 identifiers:
   - type: doi
@@ -28,6 +36,6 @@ keywords:
   - BASEMENT
   - simulation queue
   - hydro-morphodynamics
-version: 0.2.0
-date-released: "2026-11-24"
+version: 0.2.1
+date-released: "2026-11-25"
 license: MIT

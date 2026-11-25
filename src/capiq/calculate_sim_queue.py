@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright 2026, Copyright Owner: Karlsruhe Institute of Technology (KIT)
-# Author: Luiz Oliveira
+# Authors: Luiz E.D. de Oliveira, Mário J. Franca, Davide Vanzo
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
+# DOI: https://doi.org/10.5281/zenodo.24505637
 
 if __name__ == "__main__":
     raise Exception("This file must be run as module")
