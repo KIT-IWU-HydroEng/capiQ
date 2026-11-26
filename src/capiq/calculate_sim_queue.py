@@ -10,17 +10,20 @@ if __name__ == "__main__":
 
 # Import libraries
 import concurrent.futures
+import contextlib
 import logging
 import os
 import shutil
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from tqdm import tqdm
 
 import capiq.basement_tools as bt
-from capiq import cpu_topology, utils
+from capiq import cpu_topology, resume, utils
 from capiq.cpu_topology import Placement
+from capiq.resume import ResumePlan
 
 # Create a logger for run_simulations
 logger = logging.getLogger("run_simulations")
@@ -61,19 +64,38 @@ def results_file(sim_config: Path | str, folder_output: Path, subfolders: bool =
     return simulation_folder(sim_config, folder_output, subfolders) / f"{basename}_results.h5"
 
 
-def simulation_completed(sim_config: Path | str, folder_output: Path, subfolders: bool = True) -> bool:
+def resume_plan(sim_config: Path | str, folder_output: Path, subfolders: bool = True) -> ResumePlan:
     """
-    Checks whether a simulation already produced its final results file.
+    Decides what to do with a simulation from what it left in the output folder:
+    skip it (complete), continue it from its last good output, or run it from the start.
+
+    The outputs are counted against SIMULATION.TIME of the input "<NAME>_simulation.json" next to the
+    model file, so an end time changed after the run started is taken into account.
 
     Args:
         sim_config: Path to the "*_model.json" file for the simulation.
         folder_output: Path to the output folder.
         subfolders: Whether each simulation has its own folder in the output folder.
-
-    Returns:
-        True if the "*_results.h5" output already exists.
     """
-    return results_file(sim_config, folder_output, subfolders).exists()
+    results = results_file(sim_config, folder_output, subfolders)
+    basename = results.name.removesuffix("_results.h5")
+    run_config = Path(sim_config).with_name(f"{basename}_simulation.json")
+    return resume.plan_resume(
+        results, results.with_suffix(".xdmf"), results.with_name(f"{basename}_setup.h5"), run_config
+    )
+
+
+def simulation_completed(sim_config: Path | str, folder_output: Path, subfolders: bool = True) -> bool:
+    """
+    Checks whether a simulation finished: its results file holds every output the simulation asked for,
+    and the .xdmf (written after the simulation succeeded) is there.
+
+    Args:
+        sim_config: Path to the "*_model.json" file for the simulation.
+        folder_output: Path to the output folder.
+        subfolders: Whether each simulation has its own folder in the output folder.
+    """
+    return resume_plan(sim_config, folder_output, subfolders).action == "complete"
 
 
 def calculate(
@@ -82,9 +104,10 @@ def calculate(
     user_opts: dict,
     gpu: bool = False,
     placement: Placement | None = None,
+    plan: ResumePlan | None = None,
 ) -> tuple[float, bt.RtsStats | None]:
     """
-    Run the simulation.
+    Run the simulation, or continue it from its last good output.
 
     Args:
         sim_config: Path to the simulation config file.
@@ -93,6 +116,7 @@ def calculate(
         gpu: Flag to indicate if the simulation should be run on GPU.
               This is only used if there are simultaneous runs.
         placement: CPU socket, cores and GPU card to run on; None runs unpinned.
+        plan: What to do with the files a previous run left (``resume_plan``); None runs from the start.
 
     Returns:
         Elapsed time in seconds, and BASEMENT's real-time speedup (None without progress lines).
@@ -129,8 +153,16 @@ def calculate(
     # the setup in one file, the simulation and the results in the other
     setup_log = folder_sim / f"{basename}_setup.log"
     run_log = folder_sim / f"{basename}_run.log"
-    for log in (setup_log, run_log, folder_sim / f"{basename}_basement.log"):  # _basement.log: older capiQ versions
-        log.unlink(missing_ok=True)
+
+    action = plan.action if plan is not None else "new"
+    if action in ("new", "scratch"):
+        # Files a previous run left are moved aside, not deleted (also when it ran from the start)
+        for path in (results_path, resume.backup_file(results_path)):
+            if path.exists():
+                os.replace(path, resume.unusable_file(path))
+        for log in (setup_log, run_log, folder_sim / f"{basename}_basement.log"):  # _basement.log: older capiQ versions
+            log.unlink(missing_ok=True)
+    # A continuation appends to the logs of the run it continues
 
     # Update support file paths
     local_paths = {}
@@ -145,16 +177,24 @@ def calculate(
         }
     )
     local_paths.update(paths.get("initialization_files", {}).copy())
-    bt.model_update_filepaths(sim_config_str, local_paths)
+    # The model file BASEMENT's setup reads, with the full paths of its files, is written next to the
+    # results: the input file is never changed. It stays there with store_configs (default: on).
+    setup_model = folder_sim / f"{basename}_model.json"
+    bt.model_update_filepaths(sim_config_str, local_paths, str(setup_model))
 
-    # Run setup
-    bt.run_setup(
-        sim_config_str,
-        str(setup_path),
-        user_opts["simulation_options"],
-        placement=placement,
-        log_filepath=str(setup_log),
-    )
+    # Run setup (a continuation reuses the setup file of the run it continues)
+    try:
+        if action in ("new", "scratch"):
+            bt.run_setup(
+                str(setup_model),
+                str(setup_path),
+                user_opts["simulation_options"],
+                placement=placement,
+                log_filepath=str(setup_log),
+            )
+    finally:
+        if not user_opts.get("store_configs", True):
+            setup_model.unlink(missing_ok=True)
 
     # Run the simulation
     backend = None
@@ -164,16 +204,43 @@ def calculate(
             logger.warning(f"Invalid GPU backend specified: {backend}. Falling back to cudaC.")
             backend = "cudaC"
 
-    output = bt.run_simulation(
-        str(run_config),
-        str(setup_path),
-        str(results_path),
-        user_opts["simulation_options"],
-        override_backend=backend,
-        placement=placement,
-        log_filepath=str(run_log),
-    )
-    rts = bt.rts_stats(str(output["stdout"]))
+    rts = None
+    if action in ("new", "scratch", "continue"):
+        simulation_config = run_config
+        if action == "continue" and plan is not None:
+            # BASEMENT's re-run: same setup file, results appended to the partial file,
+            # SIMULATION.TIME.start = time of its last good output
+            resume.prepare_continuation(results_path, plan.last_index)
+            simulation_config = folder_sim / f"{basename}_continue_simulation.json"
+            resume.set_continuation_start(run_config, simulation_config, plan.restart_time)
+
+        output = bt.run_simulation(
+            str(simulation_config),
+            str(setup_path),
+            str(results_path),
+            user_opts["simulation_options"],
+            override_backend=backend,
+            placement=placement,
+            log_filepath=str(run_log),
+        )
+        rts = bt.rts_stats(str(output["stdout"]))
+        if simulation_config != run_config:
+            simulation_config.unlink(missing_ok=True)
+
+    # Puts back the output BASEMENT rewrote at the restart time, removes the backup, and stores the
+    # original start with the planned end (the input's end may have changed since the run started)
+    planned = resume.read_simulation_time(run_config)
+    end_out = (planned[1], planned[2]) if planned is not None else None
+    if end_out is not None:
+        resume.finish_continuation(results_path, *end_out)
+    else:
+        resume.finish_continuation(results_path)
+    status = resume.inspect_results(results_path, end_out)
+    if not status.complete:
+        raise RuntimeError(
+            f"{results_path.name} is incomplete after the simulation: "
+            f"{status.good} of {status.expected} outputs {status.error}".rstrip()
+        )
 
     # Run the results
     bt.run_results(
@@ -187,9 +254,9 @@ def calculate(
     # The xdmf finds its h5 files next to it, so the folder can be moved and opened in ParaView
     bt.make_xdmf_relative(str(xdmf_path))
 
-    # Copies json files to the simulation's output folder
-    if user_opts.get("store_configs", False):
-        shutil.copy2(sim_config, folder_sim / f"{basename}_model.json")
+    # Copies the simulation file to the simulation's output folder, next to the model file BASEMENT read
+    # (default: on, so the results keep their inputs)
+    if user_opts.get("store_configs", True):
         shutil.copy2(run_config, folder_sim / f"{basename}_simulation.json")
 
     # End time
@@ -278,8 +345,26 @@ def store_initialization(sim: str, produced: dict[str, str], paths: dict) -> Non
             logger.warning(f"Could not copy initialization file {results_name} to {folder_initialization}: {exc}")
 
 
+@dataclass(frozen=True)
+class QueueOutcome:
+    """Model files of the simulations that did not run successfully in this call of calculate_queue."""
+
+    failed: list[str] = field(default_factory=list)  # BASEMENT or capiQ failed
+    blocked: list[str] = field(default_factory=list)  # not run: their initialization simulation failed
+    already_complete: list[str] = field(default_factory=list)  # not run: complete from an earlier run
+
+    @property
+    def exit_code(self) -> int:
+        """2: a simulation failed (or was blocked by a failure), 1: complete ones were skipped, 0: all ran."""
+        if self.failed or self.blocked:
+            return 2
+        if self.already_complete:
+            return 1
+        return 0
+
+
 @utils.timeit(logger, message_end="All simulations calculated in {elapsed:.2f} seconds")
-def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
+def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> QueueOutcome:
     """
     Main function to run the simulations.
 
@@ -287,6 +372,11 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         dict_files: Dictionary containing the required filepaths
         paths: Dictionary containing the paths to the folders.
         user_opts: Dictionary containing the user options.
+
+    Returns:
+        The simulations that failed, that were skipped because their initialization failed, and that
+        were skipped because an earlier run completed them (all empty when every simulation ran and
+        succeeded). Its exit_code is the exit code of capiQ.
     """
     logger.info("Running simulations")
 
@@ -315,14 +405,20 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     failed: set[str] = set()
     skipped: list[str] = []
 
-    # Skip simulations that already have final results, unless overwrite is requested
+    # What each simulation left in the output folder: skip the complete ones, continue the partial ones
+    # (overwrite: the output folder was emptied, every simulation runs from the start)
+    plans: dict[str, ResumePlan] = {}
+    already_done: list[str] = []
     if not overwrite:
         folder_output = Path(paths["folder_output"])
-        already_done = [
-            name
-            for name, filepath in dict_simulations.items()
-            if simulation_completed(filepath, folder_output, subfolders)
-        ]
+        plans = {name: resume_plan(filepath, folder_output, subfolders) for name, filepath in dict_simulations.items()}
+        already_done = [name for name, plan in plans.items() if plan.action == "complete"]
+        for name, plan in plans.items():
+            if plan.action != "new":
+                sim_name = Path(dict_simulations[name]).stem.replace("_model", "")
+                log = logger.warning if plan.action == "scratch" else logger.info
+                log(f"Simulation {sim_name}: {plan.describe()}")
+        # Only complete runs are skipped and stored as initialization: never a partial file
         for name in already_done:
             del dict_simulations[name]
             succeeded.add(name)
@@ -337,7 +433,7 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
     if not pending:
         # Nothing left: no hardware detection, no worker processes
         logger.info("Nothing to run: all simulations are already completed (set overwrite: true to run them again)")
-        return
+        return QueueOutcome(already_complete=already_done)
 
     def skip_blocked(pbar) -> None:
         """Removes the pending simulations whose initialization failed."""
@@ -400,10 +496,18 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         resources = cpu_topology.setup_resources(sim_opts, n_threads, n_gpu)
         cpu_cores, host_cores, gpu_slots = resources.cpu_cores, resources.host_cores, resources.gpus
 
+        # The workers' log records go to this process's log (closed in the finally below, after the pools)
+        worker_log = contextlib.ExitStack()
+        initializer, initargs = worker_log.enter_context(utils.worker_logging())
+
         # Executors
         if n_gpu > 0:
-            gpu_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_gpu)
-        cpu_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_cpu)
+            gpu_executor = concurrent.futures.ProcessPoolExecutor(
+                max_workers=n_gpu, initializer=initializer, initargs=initargs
+            )
+        cpu_executor = concurrent.futures.ProcessPoolExecutor(
+            max_workers=n_cpu, initializer=initializer, initargs=initargs
+        )
 
         cpu_futures: set = set()
         gpu_futures: set = set()
@@ -467,12 +571,24 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
                     if device == "gpu":
                         gpu_slot, placement = gpu_slots.acquire(host_cores)  # type: ignore[union-attr]
                         future = gpu_executor.submit(
-                            calculate, dict_simulations[sim], local_paths, local_user_opts, True, placement
+                            calculate,
+                            dict_simulations[sim],
+                            local_paths,
+                            local_user_opts,
+                            True,
+                            placement,
+                            plans.get(sim),
                         )
                         gpu_futures.add(future)
                     elif device == "cpu":
                         future = cpu_executor.submit(
-                            calculate, dict_simulations[sim], local_paths, local_user_opts, False, placement
+                            calculate,
+                            dict_simulations[sim],
+                            local_paths,
+                            local_user_opts,
+                            False,
+                            placement,
+                            plans.get(sim),
                         )
                         cpu_futures.add(future)
                     else:
@@ -485,6 +601,10 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
                     pending.remove(sim)
                     future_to_sim[future] = sim
                     future_to_resources[future] = (gpu_slot, placement)
+
+            if n_gpu > 0:
+                gpu_executor.shutdown()
+            cpu_executor.shutdown()
         except KeyboardInterrupt:
             logger.warning("Interrupted: stopping the running simulations")
             pbar.close()
@@ -496,10 +616,9 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
             for executor in executors:
                 executor.shutdown(wait=False, cancel_futures=True)
             raise
-
-        if n_gpu > 0:
-            gpu_executor.shutdown()
-        cpu_executor.shutdown()
+        finally:
+            # After the pools: the workers' last records are written to the log first
+            worker_log.close()
 
     else:
         # Run simulations sequentially, in running order
@@ -518,7 +637,8 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
 
             sim = pending.pop(0)
             try:
-                finish(sim, calculate(dict_simulations[sim], local_paths, user_opts, False, placement), None)
+                outcome = calculate(dict_simulations[sim], local_paths, user_opts, False, placement, plans.get(sim))
+                finish(sim, outcome, None)
             except Exception as exc:
                 finish(sim, None, exc)
 
@@ -532,3 +652,4 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> None:
         logger.error(f"{len(run_failed)} simulation(s) failed: {run_failed}")
     if skipped:
         logger.error(f"{len(skipped)} simulation(s) skipped because their initialization failed: {skipped}")
+    return QueueOutcome(failed=run_failed, blocked=skipped, already_complete=already_done)

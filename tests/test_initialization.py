@@ -8,8 +8,10 @@ import shutil
 from pathlib import Path
 
 import pytest
+import results_files
 
-from capiq import basement_tools, calculate_sim_queue, create_sim_queue, functions_io, utils
+from capiq import __main__ as cli
+from capiq import basement_tools, calculate_sim_queue, create_sim_queue, functions_io, resume, utils
 from user_defined import constants
 
 EXAMPLE_FILES = Path(__file__).resolve().parent.parent / "example_files"
@@ -99,7 +101,7 @@ def test_initialization_name_matching(project, monkeypatch):
 
     monkeypatch.setattr(calculate_sim_queue, "calculate", fake_calculate(set(), []))
     calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
-    assert (paths["folder_initialization"] / "scenario_q001.H5").read_bytes() == b"results"
+    assert is_complete(paths["folder_initialization"] / "scenario_q001.H5")
 
     # Next run: found in the initialization folder, whatever the case of the requested name
     for name in ["SCENARIO2_Q001", "SCENARIO2_Q002"]:
@@ -163,16 +165,19 @@ def test_choose_device():
     assert calculate_sim_queue.choose_device("gpu", gpu_free=False, cpu_free=False) is None
 
 
-def write_results(sim_config, paths: dict) -> None:
-    """Writes a fake final results file where the queue looks for it."""
+def write_results(sim_config, paths: dict, n_written: int | None = None) -> Path:
+    """Writes a small results file (complete, with its .xdmf, unless n_written is given) where the queue looks for it."""
     subfolders = paths.get("output_subfolders", True)
     results = calculate_sim_queue.results_file(sim_config, Path(paths["folder_output"]), subfolders)
-    results.parent.mkdir(parents=True, exist_ok=True)
-    results.write_bytes(b"results")
+    return results_files.write_results(results, n_written)
+
+
+def is_complete(path: Path) -> bool:
+    return resume.inspect_results(path).complete
 
 
 def fake_calculate(fail: set[str], calls: list[str]):
-    def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
+    def calculate(sim_config, paths, user_opts, gpu=False, placement=None, plan=None):
         name = Path(sim_config).stem.removesuffix("_model")
         calls.append(name)
         if name in fail:
@@ -192,11 +197,13 @@ def test_sequential_runs_initialization_first(project, monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr(calculate_sim_queue, "calculate", fake_calculate(set(), calls))
 
-    calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
+    outcome = calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
 
+    assert outcome == calculate_sim_queue.QueueOutcome()
+    assert outcome.exit_code == 0
     assert calls[0] == "SCENARIO_Q001"
     assert sorted(calls) == ["SCENARIO2_Q001", "SCENARIO2_Q002", "SCENARIO_Q001", "SCENARIO_Q002"]
-    assert (paths["folder_initialization"] / INIT_FILE).read_bytes() == b"results"
+    assert is_complete(paths["folder_initialization"] / INIT_FILE)
 
 
 def test_sequential_skips_dependents_of_failed_initialization(project, monkeypatch):
@@ -205,10 +212,15 @@ def test_sequential_skips_dependents_of_failed_initialization(project, monkeypat
     calls: list[str] = []
     monkeypatch.setattr(calculate_sim_queue, "calculate", fake_calculate({"SCENARIO_Q001"}, calls))
 
-    calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
+    outcome = calculate_sim_queue.calculate_queue(queue, paths, USER_OPT)
 
     assert sorted(calls) == ["SCENARIO_Q001", "SCENARIO_Q002"]
     assert not (paths["folder_initialization"] / INIT_FILE).exists()
+    # The failed initialization, and the two scenarios skipped because of it: exit code 2
+    assert outcome.failed == ["SCENARIO_Q001_model.json"]
+    assert sorted(outcome.blocked) == ["SCENARIO2_Q001_model.json", "SCENARIO2_Q002_model.json"]
+    assert outcome.already_complete == []
+    assert outcome.exit_code == 2
 
 
 def test_nothing_to_run(project, monkeypatch, caplog):
@@ -226,9 +238,62 @@ def test_nothing_to_run(project, monkeypatch, caplog):
     caplog.set_level("INFO")
     options = {"parallel": True, "overwrite": False, "n_gpus": 1, "n_sim_cpus": 2}
 
-    calculate_sim_queue.calculate_queue(queue, paths, {"simulation_options": options})
+    outcome = calculate_sim_queue.calculate_queue(queue, paths, {"simulation_options": options})
 
+    # Every simulation was skipped because an earlier run completed it: exit code 1
+    assert sorted(outcome.already_complete) == sorted(queue["simulations_to_run"])
+    assert outcome.failed == outcome.blocked == []
+    assert outcome.exit_code == 1
     assert "Nothing to run" in caplog.text
+
+
+def test_failure_outranks_skipped_complete_simulations():
+    """A failure in the same run gives exit code 2 even when complete simulations were skipped."""
+    outcome = calculate_sim_queue.QueueOutcome(failed=["B_model.json"], already_complete=["A_model.json"])
+    assert outcome.exit_code == 2
+    assert calculate_sim_queue.QueueOutcome(blocked=["C_model.json"]).exit_code == 2
+
+
+@pytest.mark.parametrize(
+    "problem, message",
+    [
+        ("no input folder", "input folder"),
+        ("empty input", "input folder"),
+        ("empty mesh folder", "mesh folder"),
+        ("missing mesh", "Mesh rectangular-channel.2dm not found"),
+        ("missing initialization", "Initialization files not found"),
+        ("no user options", "user_options.yml"),
+    ],
+)
+def test_error_exit_code(project, monkeypatch, capsys, problem, message):
+    """An error that stops capiQ gives exit code 3, not Python's 1 (which means "skipped, complete")."""
+    (project / "user_defined").mkdir()
+    if problem != "no user options":
+        (project / "user_defined" / "user_options.yml").write_text("simulation_options:\n  parallel: false\n")
+    if problem == "no input folder":
+        shutil.rmtree(project / "input")
+    elif problem == "empty input":
+        shutil.rmtree(project / "input")
+        (project / "input").mkdir()
+    elif problem == "empty mesh folder":
+        (project / "meshes" / "rectangular-channel.2dm").unlink()
+    elif problem == "missing mesh":
+        (project / "meshes" / "rectangular-channel.2dm").rename(project / "meshes" / "other.2dm")
+    elif problem == "missing initialization":
+        (project / "input" / "SCENARIO_Q001_model.json").unlink()
+    monkeypatch.chdir(project)  # capiQ reads user_defined/user_options.yml from the current folder
+
+    exit_code = cli.run(["--logger-filename", str(project / "capiQ.log")])
+
+    assert exit_code == cli.EXIT_ERROR == 3
+    err = capsys.readouterr().err
+    assert "capiQ stopped with an error" in err
+    assert message in err
+    if problem in ("no input folder", "empty input", "empty mesh folder"):
+        # Only the folder at fault is named, followed by the expected layout
+        assert ("mesh folder" in err) == (problem == "empty mesh folder")
+        assert "The following layout is expected" in err
+        assert (project / "input").is_dir()
 
 
 def test_format_duration():
@@ -262,7 +327,7 @@ def test_finished_log_line(project, monkeypatch, caplog):
     paths = functions_io.setup_directories()
     queue = create_sim_queue.create_queue(paths)
 
-    def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
+    def calculate(sim_config, paths, user_opts, gpu=False, placement=None, plan=None):
         name = Path(sim_config).stem.removesuffix("_model")
         write_results(sim_config, paths)
         rts = basement_tools.RtsStats(1055.0, 820.4, 6119.2) if name == "SCENARIO_Q001" else None
@@ -303,7 +368,7 @@ def test_output_layout_queue(project, monkeypatch, caplog, subfolders):
     folder_output = Path(paths["folder_output"])
     expected = folder_output / "SCENARIO_Q001" / INIT_FILE if subfolders else folder_output / INIT_FILE
     assert expected.exists()
-    assert (paths["folder_initialization"] / INIT_FILE).read_bytes() == b"results"
+    assert is_complete(paths["folder_initialization"] / INIT_FILE)
 
     caplog.set_level("INFO")
     calculate_sim_queue.calculate_queue(queue, paths, user_opt)

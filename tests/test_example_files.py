@@ -24,7 +24,7 @@ write_rectangular_mesh = runpy.run_path(str(EXAMPLE_FILES / "create_example_mesh
 def example_project(tmp_path, monkeypatch):
     """Copy the example files into a temporary project, create the mesh and point capiQ to it.
 
-    capiQ rewrites the model files in input/, so it must not run on example_files/ directly.
+    capiQ reads input/ and writes output/ in the project root, so the example runs in a project of its own.
     """
     for folder in ["input", "support_files"]:
         shutil.copytree(EXAMPLE_FILES / folder, tmp_path / folder)
@@ -46,17 +46,27 @@ def test_example_queue(example_project):
     # Same file lookup as calculate_sim_queue.calculate: fails if a referenced file is missing
     available_files = {**queue["meshes"], **queue["support_files"]}
     for model_file in queue["simulations_to_run"].values():
-        basement_tools.model_update_filepaths(model_file, available_files)
+        basement_tools.model_update_filepaths(model_file, available_files, str(example_project / "model.json"))
 
 
 @pytest.mark.skipif(not BASEMENT_FOUND, reason=f"BASEMENT not found in {constants.BASEMENT_PATH}")
-def test_example_run(example_project):
-    """capiQ runs all example scenarios with BASEMENT and writes their results."""
-    user_opt = {
-        "store_configs": True,
-        "simulation_options": {"verbose": False, "parallel": False, "overwrite": False, "n_sim_threads": 4},
-    }
+@pytest.mark.parametrize("parallel", [False, True], ids=["sequential", "parallel-verbose"])
+def test_example_run(example_project, caplog, parallel):
+    """capiQ runs all example scenarios with BASEMENT and writes their results.
+
+    The parallel run is verbose: BASEMENT's output, logged in the worker processes, reaches the capiQ log.
+    """
+    caplog.set_level("INFO")
+    simulation_options = {"verbose": parallel, "parallel": parallel, "overwrite": False, "n_sim_threads": 2}
+    if parallel:
+        simulation_options |= {"n_sim_cpus": 2, "n_gpus": 0}
+    user_opt = {"store_configs": True, "simulation_options": simulation_options}
     main(user_opt, logger_filename=str(example_project / "capiQ.log"))
+
+    # Verbose: BASEMENT's output of the setup, simulation and results step of every simulation
+    n_models = len(list((EXAMPLE_FILES / "input").glob("*_model.json")))
+    assert caplog.text.count("--- STDOUT ---") == (3 * n_models if parallel else 0)
+    assert "failed" not in caplog.text
 
     for model_file in (EXAMPLE_FILES / "input").glob("*_model.json"):
         name = model_file.stem.removesuffix("_model")
@@ -66,3 +76,5 @@ def test_example_run(example_project):
         xdmf = (example_project / "output" / name / f"{name}_results.xdmf").read_text(encoding="utf-8")
         assert str(example_project) not in xdmf
         assert str(example_project).replace("\\", "/") not in xdmf
+        # The input files are never changed: BASEMENT read the model file written to the output folder
+        assert (example_project / "input" / model_file.name).read_bytes() == model_file.read_bytes()

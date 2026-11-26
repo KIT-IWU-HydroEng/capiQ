@@ -190,7 +190,7 @@ def test_queue_places_runs(project, monkeypatch, caplog):  # noqa: F811  (pytest
     seen: list[tuple[bool, Placement]] = []
     clashes: list[tuple[Placement, Placement]] = []  # Failures inside calculate are caught by the queue
 
-    def calculate(sim_config, paths, user_opts, gpu=False, placement=None):
+    def calculate(sim_config, paths, user_opts, gpu=False, placement=None, plan=None):
         with lock:
             for other in running:
                 shares_card = gpu and other.cuda_device == placement.cuda_device
@@ -407,6 +407,31 @@ def test_kill_process_trees_real():
     utils.kill_process_trees([root.pid])
     root.wait(timeout=10)
     assert not [pid for pid in tree if alive(pid)]
+
+
+def test_worker_logging_reaches_main_log(caplog):
+    """Records logged in real worker processes reach the main process's log once, at its level."""
+    caplog.set_level("INFO")
+
+    with utils.worker_logging() as (initializer, initargs):
+        with concurrent.futures.ProcessPoolExecutor(max_workers=2, initializer=initializer, initargs=initargs) as pool:
+            futures = [pool.submit(logging.warning, "from worker %d", i) for i in range(4)]
+            futures.append(pool.submit(logging.debug, "below the log level"))
+            for future in futures:
+                future.result()
+
+    # Also the records still in the queue when the pool finished were written out
+    for i in range(4):
+        assert caplog.text.count(f"from worker {i}") == 1
+    assert "below the log level" not in caplog.text
+
+
+def test_worker_logging_in_main_process_keeps_handlers():
+    """In the main process (a thread pool), the initializer leaves the log handlers alone."""
+    handlers = list(logging.getLogger().handlers)
+    with utils.worker_logging() as (initializer, initargs):
+        initializer(*initargs)
+    assert logging.getLogger().handlers == handlers
 
 
 def test_basement_log(tmp_path, monkeypatch):

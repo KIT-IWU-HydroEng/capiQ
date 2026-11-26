@@ -193,7 +193,7 @@ def run_basement_exe(
             )
         except OSError as exc:
             _write_line(output, f"===== could not start: {exc}\n")
-            logging.error(f"Unable to start {exe_path!r}: {exc}")
+            logger.error(f"Unable to start {exe_path!r}: {exc}")
             raise
 
         try:
@@ -225,22 +225,22 @@ def run_basement_exe(
     # Optional verbose logging (useful when you run manually)
     if run_options.get("verbose"):
         if completed.stdout:
-            logging.info("--- STDOUT ---")
-            logging.info(completed.stdout)
+            logger.info("--- STDOUT ---")
+            logger.info(completed.stdout)
         if completed.stderr:
-            logging.error("--- STDERR ---")
-            logging.error(completed.stderr)
+            logger.error("--- STDERR ---")
+            logger.error(completed.stderr)
 
     # Always log the full output on failure
     if completed.returncode != 0:
         where = f" on {placement.describe()}" if placement is not None else ""
-        logging.error(f"'{exe_name}' failed (return code {completed.returncode}){where}. Command: {' '.join(cmd)}")
+        logger.error(f"'{exe_name}' failed (return code {completed.returncode}){where}. Command: {' '.join(cmd)}")
         if completed.stderr:
-            logging.error("--- STDERR ---")
-            logging.error(completed.stderr)
+            logger.error("--- STDERR ---")
+            logger.error(completed.stderr)
         if completed.stdout:
-            logging.info("--- STDOUT (extra info) ---")
-            logging.info(completed.stdout)
+            logger.info("--- STDOUT (extra info) ---")
+            logger.info(completed.stdout)
 
         see = f" and {log_filepath}" if log_filepath else ""
         raise Exception(f"{exe_name} failed. Check the log{see} for details.")
@@ -408,13 +408,18 @@ def make_xdmf_relative(xdmf_filepath: str) -> bool:
     return True
 
 
-def model_update_filepaths(filepath_config: str, filepaths_support_files: dict) -> None:
+def model_update_filepaths(filepath_config: str, filepaths_support_files: dict, output_filepath: str) -> None:
     """
-    Updates the file paths in the JSON configuration file.
+    Writes the model file BASEMENT's setup reads: the input model file with the full paths of its mesh,
+    support and initialization files, and its simulation name. The input file itself is not changed.
 
     Parameters:
-        filepath_config (str): Path to the JSON configuration file.
-        filepaths_support_files (dict): Dictionary containing support files and their paths.
+        filepath_config (str): Path to the input model file ("input/<NAME>_model.json").
+        filepaths_support_files (dict): {file name: full path} of the meshes, support and initialization files.
+        output_filepath (str): Path of the model file to write (in the simulation's output folder).
+
+    Raises:
+        FileNotFoundError: if a file the model refers to is not among filepaths_support_files.
 
     Returns:
         None
@@ -431,7 +436,7 @@ def model_update_filepaths(filepath_config: str, filepaths_support_files: dict) 
                         obj[key] = filepaths_support_files[basename]
                     else:
                         msg = f"File '{basename}' not found in support files. Please check your configuration or support_files folder."
-                        logging.error(msg)
+                        logger.error(msg)
                         raise FileNotFoundError(msg)
         elif isinstance(obj, list):
             for item in obj:
@@ -454,8 +459,8 @@ def model_update_filepaths(filepath_config: str, filepaths_support_files: dict) 
     update_file_references(hydraulics.get("INITIAL", {}))
     update_file_references(hydraulics.get("TURBULENCE", {}).get("INITIAL", {}))
 
-    # Save updated config
-    with open(filepath_config, "w") as file:
+    # Save the updated config next to the results, never over the input file
+    with open(output_filepath, "w") as file:
         json.dump(config_data, file, indent=4)
 
 

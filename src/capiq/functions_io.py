@@ -15,6 +15,27 @@ from pathlib import Path
 
 from user_defined import constants as c
 
+# Shown when the input or mesh folder is empty: the layout of the documentation's "Input files" page,
+# drawn in ASCII so that every terminal shows it (box-drawing characters break on cp1252 consoles)
+EXPECTED_LAYOUT = """Add the files, then run capiQ again. The following layout is expected:
+
+input/                               (project root)
+|-- SCENARIO_Q001_model.json         one pair per simulation
+|-- SCENARIO_Q001_simulation.json
+|-- SCENARIO_Q002_model.json
+|-- SCENARIO_Q002_simulation.json
+`-- results.json                     a single file for all simulations
+
+MESH_FOLDER/                         (constants.py)
+`-- rectangular-channel.2dm
+
+SUPPORT_FOLDER/                      (constants.py)
+|-- Q001.txt
+`-- Q002.txt
+
+INITIALIZATION_FOLDER/               (constants.py, optional)
+`-- BASE_Q001_results.h5"""
+
 
 def setup_directories(overwrite: bool = False):
     path_project = Path(c.PROJECT_ROOT)
@@ -31,41 +52,18 @@ def setup_directories(overwrite: bool = False):
     folder_support.mkdir(parents=True, exist_ok=True)
     # The initialization folder is only created when an initialization result has to be stored in it
 
-    error_conditions = [
-        not folder_input.exists()
-        or not any(folder_input.iterdir())
-        or not folder_meshes.exists()
-        or not any(folder_meshes.iterdir())
-    ]
+    # Names every folder that is missing or empty, then the expected layout
+    problems = []
+    if not folder_input.exists():
+        problems.append(f"The input folder {folder_input} does not exist: it was created now.")
+    elif not any(folder_input.iterdir()):
+        problems.append(f"The input folder {folder_input} is empty.")
+    if not any(folder_meshes.iterdir()):
+        problems.append(f"The mesh folder {folder_meshes} (MESH_FOLDER in user_defined/constants.py) is empty.")
 
-    if any(error_conditions):
+    if problems:
         folder_input.mkdir(parents=True, exist_ok=True)
-        exception_message = """Input folder is empty. Please add data to the input folder.
-        The following structure is expected:
-        input
-        ├── SCENARIO1_DISCHARGE1_model.json
-        ├── SCENARIO1_DISCHARGE1_simulation.json
-        ├── SCENARIO2_DISCHARGE2_model.json
-        ├── SCENARIO2_DISCHARGE2_simulation.json
-        ├── results.json  * This is a single file, and do not need to be personalised for each scenario
-        └── ...
-
-        meshes
-        ├── file1.2dm
-        ├── file2.2dm
-        └── ...
-
-        support_files (optional)
-        ├── Q001.txt
-        ├── Q002.txt
-        ├── Q003.txt
-        └── ...
-
-        initialization (optional)
-        ├── SCENARIO0_DISCHARGE1_results.h5  * or produced from input/SCENARIO0_DISCHARGE1_model.json
-        └── ...
-        """
-        raise Exception(exception_message)
+        raise Exception("\n".join([*problems, EXPECTED_LAYOUT]))
 
     return {
         "path_project": path_project,

@@ -9,8 +9,13 @@ if __name__ == "__main__":
     raise Exception("This file must be run as module")
 
 # Libraries
+import contextlib
+import logging
+import logging.handlers
+import multiprocessing
 import sys
 import time
+from collections.abc import Callable, Iterator
 
 import psutil
 
@@ -97,3 +102,52 @@ def kill_process_trees(pids: list[int]) -> None:
         except psutil.NoSuchProcess:
             pass
     psutil.wait_procs(processes, timeout=5)
+
+
+def init_worker_logging(log_queue, level: int) -> None:
+    """
+    Initializer of the worker processes: sends their log records to the main process (``worker_logging``).
+
+    Handlers inherited by a forked worker are removed, so that only the main process writes the log file.
+    In the main process itself (a thread pool, as in the tests) nothing changes: its handlers already
+    write the log.
+
+    Args:
+        log_queue: Queue read by the main process.
+        level: Log level of the main process's root logger.
+    """
+    if multiprocessing.parent_process() is None:
+        return
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+    root.addHandler(logging.handlers.QueueHandler(log_queue))
+    root.setLevel(level)
+
+
+@contextlib.contextmanager
+def worker_logging() -> Iterator[tuple[Callable[..., None], tuple]]:
+    """
+    Lets worker processes log to this process's log (the capiQ log file), while the context is open.
+
+    Worker processes start without the log configuration of the main process (always on Windows, on
+    Linux from Python 3.14), so their records would be lost. With this, they put their records on a
+    queue, and a thread of this process passes them to its own handlers.
+
+    The queue is a Manager queue: a worker killed on Ctrl+C while logging only drops its own connection
+    to it, whereas a killed writer can break a multiprocessing.Queue and hang the listener.
+
+    Yields:
+        The initializer and its arguments for the process pools: ``ProcessPoolExecutor(initializer=...,
+        initargs=...)``.
+    """
+    root = logging.getLogger()
+    with multiprocessing.Manager() as manager:
+        log_queue = manager.Queue()
+        listener = logging.handlers.QueueListener(log_queue, *root.handlers, respect_handler_level=True)
+        listener.start()
+        try:
+            yield init_worker_logging, (log_queue, root.getEffectiveLevel())
+        finally:
+            # Writes out the records still in the queue, then stops the thread
+            listener.stop()

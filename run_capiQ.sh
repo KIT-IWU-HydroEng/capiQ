@@ -24,7 +24,8 @@ if [ ! -x "$PYTHON_EXE" ]; then
     echo "ERROR: uv was not found and the Python executable does not exist:" >&2
     echo "  \"$PYTHON_EXE\"" >&2
     echo "Install uv (https://docs.astral.sh/uv/) or create .venv and run: pip install -e ." >&2
-    exit 1
+    # 3: capiQ could not start, the same exit code as capiQ's own errors (see the documentation)
+    exit 3
 fi
 
 exec "$PYTHON_EXE" -m capiq "$@"

@@ -10,8 +10,7 @@ simulation_options:
   # Set the backend for the simulations
   gpu_backend: cudaC        # Backend for GPU simulations (cuda or cudaC)
 
-  # Run several simularions simultaneously
-  simultaneous: true        # Run several simulations in parallel
+  # Processes that run simulations at the same time (with parallel: True)
   n_gpus: 0                 # Number of GPUs processes
   n_sim_cpus: 2             # Number of CPUs processes
   n_sim_threads: 4          # Number of threads for each CPU process

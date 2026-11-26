@@ -29,7 +29,8 @@ if not exist "%PYTHON_EXE%" (
 	echo ERROR: uv was not found and the Python executable does not exist:
 	echo   "%PYTHON_EXE%"
 	echo Install uv ^(https://docs.astral.sh/uv/^) or create .venv and run: pip install -e .
-	exit /b 1
+	rem 3: capiQ could not start, the same exit code as capiQ's own errors (see the documentation)
+	exit /b 3
 )
 
 "%PYTHON_EXE%" -m capiq %*
