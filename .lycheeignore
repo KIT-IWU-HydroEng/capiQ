@@ -1,0 +1,9 @@
+# Links skipped by the Markdown link check (repository-checks.yml), one regular expression per line.
+
+# Local documentation preview (uv run zensical serve -f docs/zensical.toml)
+^https?://(localhost|127\.0\.0\.1)
+
+# The documentation site and its workflow badge only exist after the first deployment from main
+# (.github/workflows/docs.yml). Remove these two lines once https://kit-iwu-hydroeng.github.io/capiQ/ is online.
+^https://kit-iwu-hydroeng\.github\.io/capiQ
+^https://github\.com/KIT-IWU-HydroEng/capiQ/actions/workflows/docs\.yml

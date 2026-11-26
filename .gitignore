@@ -164,8 +164,8 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# Documentation site built by Zensical (docs/zensical.toml)
+/docs/site/
 
 # mypy
 .mypy_cache/
@@ -221,9 +221,12 @@ __marimo__/
 input/
 output/
 meshes/
+# Initialization results written by the examples (example_files/initialization_example)
+example_files/initialization/
 
 # Keep the example input files (the example mesh is created by example_files/create_example_mesh.py)
 !example_files/input
+!example_files/initialization_example/input
 
 # Temporary file of the dependency audit (see CONTRIBUTING.md)
 requirements-audit.txt

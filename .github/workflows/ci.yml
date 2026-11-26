@@ -1,10 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Python CI, based on https://github.com/KIT-IWU-HydroEng/python-template
-# (without the test job: tests do not apply to this repository)
 # Environments are managed with uv and resolved from uv.lock.
 #
 #   lint
 #   typecheck
+#   test               pytest on Linux and Windows; BASEMENT is not installed, so test_example_run is skipped
 #   security
 #   dependency-audit
 # ─────────────────────────────────────────────────────────────────────────────

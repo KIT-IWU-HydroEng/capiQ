@@ -1,0 +1,22 @@
+{
+  "SIMULATION": {
+    "TIME": {
+      "end": 1000.0,
+      "out": 100.0,
+      "start": 0.0
+    },
+    "TIMESTEP": {
+      "init": 0.001,
+      "minimum": 0.001
+    },
+    "OUTPUT": [
+      "water_depth",
+      "water_surface",
+      "flow_velocity",
+      "ns_hyd_discharge",
+      "turb_k",
+      "turb_reynolds",
+      "friction_chezy"
+    ]
+  }
+}

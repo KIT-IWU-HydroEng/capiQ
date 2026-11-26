@@ -1,0 +1,116 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Documentation site, built with Zensical (https://zensical.org)
+#
+# Run from the project root (the example files are included relative to it):
+#
+#   Preview with live reload:  uv run zensical serve -f docs/zensical.toml   (http://localhost:8000)
+#   Build into docs/site/:     uv run zensical build -f docs/zensical.toml --clean
+#
+# Pages live in docs/pages/ (paths below are relative to this file). Example files are
+# included from example_files/ and user_defined/ with pymdownx.snippets, so the docs
+# always show the real files.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[project]
+site_name = "capiQ"
+site_description = "Computational Automation Pipeline for Hydro-morphodynamic simulation Queues"
+site_author = "Luiz E.D. de Oliveira, Mário J. Franca, Davide Vanzo"
+site_url = "https://kit-iwu-hydroeng.github.io/capiQ/"   # the trailing slash is required
+repo_url = "https://github.com/KIT-IWU-HydroEng/capiQ"
+repo_name = "KIT-IWU-HydroEng/capiQ"
+edit_uri = "edit/main/docs/pages/"
+copyright = "Copyright &copy; 2026 Karlsruhe Institute of Technology (KIT), MIT License"
+docs_dir = "pages"                    # docs/pages/
+site_dir = "site"                     # docs/site/ (gitignored)
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Quick start" = "getting-started/quickstart.md" },
+  ] },
+  { "User guide" = [
+    { "Configuration" = "user-guide/configuration.md" },
+    { "Input files" = "user-guide/input-files.md" },
+    { "Running capiQ" = "user-guide/running.md" },
+    { "Outputs" = "user-guide/outputs.md" },
+    { "Initialization simulations" = "user-guide/initialization.md" },
+    { "Resuming a queue" = "user-guide/resuming.md" },
+    { "Several CPU sockets or GPUs" = "user-guide/multi-socket-gpu.md" },
+  ] },
+  { "Examples" = "examples/index.md" },
+  { "About" = [
+    { "Citation and references" = "about/citation.md" },
+    { "Contributing" = "about/contributing.md" },
+  ] },
+]
+
+# ── Theme ────────────────────────────────────────────────────────────────────
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.tabs.link",          # choosing Windows in one tab set switches all of them
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+# ── Markdown extensions ──────────────────────────────────────────────────────
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.betterem = {}
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+# Includes real files: --8<-- "example_files/input/results.json". Paths are relative to the
+# folder the build runs from (the project root), and a missing file fails the build, so the
+# docs cannot point to a removed example.
+pymdownx.snippets.base_path = ["."]
+pymdownx.snippets.check_paths = true
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true

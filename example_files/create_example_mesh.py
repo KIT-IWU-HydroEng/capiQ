@@ -6,9 +6,9 @@
 
 """Create the triangular mesh of a rectangular channel used by the example files.
 
-Run from the project root before running the examples:
+Run from the project root before running the examples (without uv: python instead of uv run):
 
-    python example_files/create_example_mesh.py
+    uv run example_files/create_example_mesh.py
 
 The mesh is written to example_files/meshes/rectangular-channel.2dm (or to the path given as argument).
 
