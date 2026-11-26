@@ -21,6 +21,19 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  # Citation metadata: CITATION.cff against the Citation File Format schema, only when it changes.
+  # In its own environment, like ruff and mypy, so commits work without an activated .venv;
+  # cffconvert is also in the dev group, to run it by hand (see CONTRIBUTING.md).
+  - repo: local
+    hooks:
+      - id: cffconvert
+        name: validate CITATION.cff
+        entry: cffconvert --validate -i CITATION.cff
+        language: python
+        additional_dependencies: [cffconvert==2.0.0]
+        files: ^CITATION\.cff$
+        pass_filenames: false
+
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.4.0
     hooks:
