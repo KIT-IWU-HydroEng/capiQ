@@ -18,6 +18,11 @@ capiQ is a Python-based Computational Automation Pipeline for Hydro-morphodynami
 
 **Available at: <https://kit-iwu-hydroeng.github.io/capiQ/>**
 
+- **Getting started:** [installation](https://kit-iwu-hydroeng.github.io/capiQ/getting-started/installation/) · [quick start](https://kit-iwu-hydroeng.github.io/capiQ/getting-started/quickstart/)
+- **User guide:** [configuration](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/configuration/) · [input files](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/input-files/) · [running capiQ](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/running/) · [outputs](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/outputs/) · [initialization simulations](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/initialization/) · [resuming a queue](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/resuming/) · [several CPU sockets or GPUs](https://kit-iwu-hydroeng.github.io/capiQ/user-guide/multi-socket-gpu/)
+- **[Examples](https://kit-iwu-hydroeng.github.io/capiQ/examples/)**
+- **[Developer reference](https://kit-iwu-hydroeng.github.io/capiQ/reference/overview/)**
+
 To browse the documentation offline, run `uv sync` once, then `uv run zensical serve -f docs/zensical.toml` from the project root and open `http://localhost:8000`.
 
 ## Supported hydrodynamic software
