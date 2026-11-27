@@ -42,12 +42,34 @@ uv run python -m capiq --logger-filename river_run1.log
 
 ## What happens during a run
 
-1. capiQ reads `user_options.yml`, writes it to `output/capiQ_user_options.json` and to the log.
-2. It collects the `NAME_model.json` files in `input/`, checks the meshes and [initialization files](initialization.md), and orders the queue so that initialization simulations run first. Support files are looked up when each simulation starts: a missing one fails only the simulation that needs it.
-3. It checks `output/` for results of earlier runs and decides for each simulation whether to skip, continue or rerun it ([Resuming a queue](resuming.md)).
-4. For each simulation it runs BASEMENT's setup, simulation and results steps, on a CPU process or a GPU as set in [`user_options.yml`](configuration.md#run-options-user_optionsyml).
-5. A progress bar shows the finished simulations; the log gives each simulation's run time and speed.
-6. At the end, capiQ lists in the terminal the simulations that failed or were skipped, and exits with one of the [exit codes](#exit-codes) below.
+```mermaid
+flowchart TD
+    %% Links are relative to this page's URL; the build does not check links inside a chart
+    S1["<b>1.</b>#nbsp;Read#nbsp;user_options.yml"]
+    S2["<b>2.</b>#nbsp;Build#nbsp;the#nbsp;queue,#nbsp;initialization#nbsp;simulations#nbsp;first#nbsp;(<a href='../initialization/'>initialization#nbsp;files</a>)"]
+    S1 --> S2
+
+    subgraph each ["For each simulation, in parallel on CPUs and GPUs"]
+        direction TB
+        S3{"<b>3.</b> Earlier results<br/>in output/?<br/>(<a href='../resuming/'>Resuming#nbsp;a#nbsp;queue</a>)"}
+        SKIP["Skip"]
+        CONT["Continue from<br/>the last output"]
+        FULL["<b>4.</b> BASEMENT<br/>setup, simulation,<br/>results<br/>(<a href='../configuration/#run-options-user_optionsyml'>user_options.yml</a>)"]
+        RES["Results<br/>step only"]
+        S5["<b>5.</b> Progress bar<br/>and log"]
+        S3 -- "complete" --> SKIP
+        S3 -- "partial<br/>(<a href='../resuming/#partial-simulations-are-continued'>Resuming#nbsp;a#nbsp;queue</a>)" --> CONT
+        S3 -- "none or unusable" --> FULL
+        S3 -- "complete, no .xdmf" --> RES
+        CONT --> S5
+        FULL --> S5
+        RES --> S5
+    end
+
+    S2 --> S3
+    SKIP --> S6
+    S5 --> S6["<b>6.</b>#nbsp;Report#nbsp;failed#nbsp;and#nbsp;skipped#nbsp;simulations,#nbsp;exit#nbsp;with#nbsp;an#nbsp;exit#nbsp;code#nbsp;(<a href='#exit-codes'>exit#nbsp;codes</a>)"]
+```
 
 ## Exit codes
 
