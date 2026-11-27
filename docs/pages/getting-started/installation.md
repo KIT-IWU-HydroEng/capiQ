@@ -3,7 +3,7 @@
 ## Requirements
 
 - [BASEMENT](https://basement.ethz.ch) 4.x with the BASEHPC module.
-- Python 3.11 or newer. With uv you do not need to install it yourself.
+- Python 3.11 to 3.14. With uv you do not need to install it yourself.
 - Windows or Linux. capiQ also runs on macOS, but BASEMENT does not.
 
 The recommended way to install capiQ is with [uv](https://docs.astral.sh/uv/), which also takes care of Python.
@@ -41,7 +41,7 @@ From the project root:
 uv sync
 ```
 
-This creates the virtual environment `.venv` in the project root and installs capiQ (in editable mode) with the exact dependency versions from `uv.lock`, including the development tools. uv uses any installed Python 3.11 or newer and downloads one only if none is found; to choose a version, add for example `--python 3.12`.
+This creates the virtual environment `.venv` in the project root and installs capiQ (in editable mode) with the exact dependency versions from `uv.lock`, including the development tools. uv uses any installed Python from 3.11 to 3.14 and downloads one only if none is found; to choose a version, add for example `--python 3.12`.
 
 You do not need to activate `.venv`: prefix commands with `uv run`, and uv keeps the environment in sync with `uv.lock` before each command.
 

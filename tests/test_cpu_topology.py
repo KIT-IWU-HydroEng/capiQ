@@ -235,6 +235,31 @@ def test_queue_places_runs(project, monkeypatch, caplog):  # noqa: F811  (pytest
         assert cpu_run or (gpu_run and gpu_run[1] == gpu_run[2]), message
 
 
+def test_queue_logs_unpinned_cpu_runs(project, monkeypatch, caplog):  # noqa: F811  (pytest fixture)
+    """CPU runs too large for one socket are not pinned, and the log still says where each one starts."""
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr(cpu_topology, "detect_topology", two_sockets)
+    monkeypatch.setattr(cpu_topology, "detect_gpus", lambda override=None: [GpuInfo(0, 1)])
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+
+    def calculate(sim_config, paths, user_opts, gpu=False, placement=None, plan=None):
+        time.sleep(0.05)
+        results = calculate_sim_queue.results_file(sim_config, Path(paths["folder_output"]))
+        results.parent.mkdir(parents=True, exist_ok=True)
+        results.write_bytes(b"results")
+        return 0.0, None
+
+    monkeypatch.setattr(calculate_sim_queue, "calculate", calculate)
+    options = {"parallel": True, "overwrite": False, "n_gpus": 1, "n_sim_cpus": 1, "n_sim_threads": 15}
+    paths = functions_io.setup_directories()
+    calculate_sim_queue.calculate_queue(create_sim_queue.create_queue(paths), paths, {"simulation_options": options})
+
+    started = [m for m in (record.getMessage() for record in caplog.records) if " started on " in m]
+    assert len(started) == 4
+    assert any(re.fullmatch(r"Simulation \w+ started on CPU, 15 threads, not pinned", m) for m in started)
+    assert any(re.fullmatch(r"Simulation \w+ started on GPU 0, socket 1, CPUs 8", m) for m in started)
+
+
 def test_resources_log(monkeypatch, caplog):
     """Messages when pinning is not possible."""
     caplog.set_level(logging.INFO)

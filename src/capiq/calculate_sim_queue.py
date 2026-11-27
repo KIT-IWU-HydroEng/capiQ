@@ -594,9 +594,10 @@ def calculate_queue(dict_files: dict, paths: dict, user_opts: dict) -> QueueOutc
                     else:
                         break
 
-                    if placement is not None and (placement.pinned or placement.cuda_device is not None):
-                        sim_name = Path(dict_simulations[sim]).stem.replace("_model", "")
-                        logger.info(f"Simulation {sim_name} started on {placement.describe()}")
+                    # GPU runs always have a placement, CPU runs only when pinned
+                    sim_name = Path(dict_simulations[sim]).stem.replace("_model", "")
+                    where = placement.describe() if placement is not None else f"CPU, {n_threads} threads, not pinned"
+                    logger.info(f"Simulation {sim_name} started on {where}")
 
                     pending.remove(sim)
                     future_to_sim[future] = sim

@@ -12,7 +12,7 @@ name = "capiQ"
 version = "0.2.1"                        # MAJOR.MINOR.PATCH, see https://semver.org
 description = "Computational Automation Pipeline for Hydro-morphodynamic simulation Queues"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"       # upper bound: h5py ships no wheels beyond 3.14 yet
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -23,6 +23,10 @@ authors = [
 keywords = ["hydraulics", "river engineering", "BASEMENT", "simulation queue", "hydro-morphodynamics"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Hydrology",
 ]
