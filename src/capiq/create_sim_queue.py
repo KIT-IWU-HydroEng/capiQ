@@ -5,6 +5,10 @@
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
 # DOI: https://doi.org/10.5281/zenodo.24505637
 
+"""
+Builds the simulation queue: scenarios, meshes, support and initialization files, and the run order.
+"""
+
 if __name__ == "__main__":
     raise Exception("This file must be run as module")
 
@@ -99,8 +103,8 @@ def check_meshes(dict_simulation: dict, dict_mesh: dict) -> None:
     This function checks if the meshes are available for the simulations.
 
     Args:
-        simulation (dict): dictionary containing the simulation data
-        mesh (dict): dictionary containing the mesh data
+        dict_simulation (dict): dictionary containing the simulation data
+        dict_mesh (dict): dictionary containing the mesh data
 
     Returns:
         None

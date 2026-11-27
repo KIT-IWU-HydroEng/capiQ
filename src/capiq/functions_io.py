@@ -5,6 +5,10 @@
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
 # DOI: https://doi.org/10.5281/zenodo.24505637
 
+"""
+Sets up the project folders of a run and records its user options in the output folder.
+"""
+
 if __name__ == "__main__":
     raise Exception("This file must be run as module")
 
@@ -38,6 +42,20 @@ INITIALIZATION_FOLDER/               (constants.py, optional)
 
 
 def setup_directories(overwrite: bool = False):
+    """
+    Finds the project folders (set in ``user_defined/constants.py``) and creates the missing output, mesh and
+    support folders.
+
+    Args:
+        overwrite: Delete the output folder first.
+
+    Returns:
+        paths (dict): The paths ``path_project``, ``folder_input``, ``folder_output``, ``folder_meshes``,
+            ``folder_support`` and ``folder_initialization``.
+
+    Raises:
+        Exception: If the input or the mesh folder is missing or empty; the message shows the expected layout.
+    """
     path_project = Path(c.PROJECT_ROOT)
     folder_input = path_project / "input"
     folder_output = path_project / "output"
@@ -76,6 +94,14 @@ def setup_directories(overwrite: bool = False):
 
 
 def write_user_options(user_opt: dict, folder_output: Path, logger: logging.Logger | None = None) -> None:
+    """
+    Writes the user options of the run to ``capiQ_user_options.json`` in the output folder.
+
+    Args:
+        user_opt: The user options (``user_defined/user_options.yml``).
+        folder_output: The output folder.
+        logger: If given, the options are also written to this log.
+    """
     user_opt_json_path = folder_output / "capiQ_user_options.json"
     with open(user_opt_json_path, "w") as json_file:
         json.dump(user_opt, json_file, indent=4)

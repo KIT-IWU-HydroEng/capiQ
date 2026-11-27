@@ -30,3 +30,7 @@ The result is written to `docs/site/` (not committed). To show a repository file
 ````
 
 After a pull request is merged into `main`, GitHub Actions publishes the site to <https://kit-iwu-hydroeng.github.io/capiQ/>.
+
+## Developer reference
+
+The [Developer reference](../reference/overview.md) is rendered from the docstrings in `src/capiq/`. It has one page per module in `docs/pages/reference/capiq/`, showing public functions and classes only. Each page holds a single line, `::: capiq.<module>`. A new module needs such a page and an entry in the `nav` of `docs/zensical.toml`. Docstrings follow the [Google style](https://mkdocstrings.github.io/griffe/reference/docstrings/#google-style). A malformed docstring does not stop the site build, so `tests/test_docstrings.py` checks the docstrings, and also checks that every module has its page. The live preview does not watch `src/`: restart `zensical serve` to see a changed docstring.

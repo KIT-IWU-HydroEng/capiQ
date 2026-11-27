@@ -5,6 +5,10 @@
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
 # DOI: https://doi.org/10.5281/zenodo.24505637
 
+"""
+Runs the simulation queue in parallel on CPU sockets and GPUs, resuming or skipping earlier runs.
+"""
+
 if __name__ == "__main__":
     raise Exception("This file must be run as module")
 

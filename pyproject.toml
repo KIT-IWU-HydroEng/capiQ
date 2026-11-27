@@ -44,6 +44,7 @@ dependencies = [
 dev = [
     "bandit>=1.9",
     "cffconvert>=2.0",                  # validates CITATION.cff (also a pre-commit hook)
+    "mkdocstrings-python>=2.0",         # developer reference in the docs, generated from the docstrings
     "mypy>=2.0",
     "pip-audit>=2.10",
     "pre-commit>=4.0",

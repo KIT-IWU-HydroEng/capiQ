@@ -43,7 +43,41 @@ nav = [
     { "Citation and references" = "about/citation.md" },
     { "Contributing" = "about/contributing.md" },
   ] },
+  # One page per module in reference/capiq/, each a single "::: capiq.<module>" line rendered
+  # from the docstrings. A new module needs a page here: tests/test_docstrings.py fails until it
+  # has one. The overview is not named index.md, so that the section title stays plain text
+  # (navigation.indexes would turn it into a link).
+  { "Developer reference" = [
+    { "Overview" = "reference/overview.md" },
+    { "capiQ" = [
+      { "basement_tools" = "reference/capiq/basement_tools.md" },
+      { "calculate_sim_queue" = "reference/capiq/calculate_sim_queue.md" },
+      { "cpu_topology" = "reference/capiq/cpu_topology.md" },
+      { "create_sim_queue" = "reference/capiq/create_sim_queue.md" },
+      { "functions_io" = "reference/capiq/functions_io.md" },
+      { "resume" = "reference/capiq/resume.md" },
+      { "utils" = "reference/capiq/utils.md" },
+    ] },
+  ] },
 ]
+
+# ── Developer reference (mkdocstrings) ───────────────────────────────────────
+# Renders the "::: capiq.<module>" lines in docs/pages/reference/ from the Google-style
+# docstrings in src/capiq/. The path is relative to this file's folder (docs/), hence the
+# "../". The package is read statically, so the docs build does not need capiQ installed.
+# The preview (zensical serve) does not watch src/: restart it after editing a docstring.
+# A malformed docstring is only a log warning here, even with --strict: the test
+# tests/test_docstrings.py fails on it instead.
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["../src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+filters = ["!^_"]                     # public objects only
+heading_level = 1                     # the module heading is the page title
+members_order = "source"
+show_root_heading = true
+show_source = false
 
 # ── Theme ────────────────────────────────────────────────────────────────────
 [project.theme]

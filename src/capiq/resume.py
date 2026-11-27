@@ -354,8 +354,10 @@ def finish_continuation(results_path: Path, end: float | None = None, out: float
 
     Args:
         results_path: "<NAME>_results.h5".
-        end, out: SIMULATION.TIME end and out of the input "<NAME>_simulation.json";
-                  None keeps the ones stored in the file.
+        end: SIMULATION.TIME end of the input "<NAME>_simulation.json";
+            None keeps the one stored in the file.
+        out: SIMULATION.TIME out of the input "<NAME>_simulation.json";
+            None keeps the one stored in the file.
     """
     backup = backup_file(results_path)
     if backup.exists():

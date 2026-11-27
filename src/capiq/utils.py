@@ -5,6 +5,10 @@
 # Contact: luiz.oliveira@kit.edu, Institute for Water and Environment (IWU)
 # DOI: https://doi.org/10.5281/zenodo.24505637
 
+"""
+Helpers shared by the other modules: timing, stopping process trees, and logging from worker processes.
+"""
+
 if __name__ == "__main__":
     raise Exception("This file must be run as module")
 
@@ -34,7 +38,7 @@ def timeit(
     Decorator to log function execution time.
 
     Args:
-        logger: The logger to use.
+        logger (logging.Logger): The logger to use.
         message_start: Optional custom message logged at the start.
                        Can include {func_name} as a placeholder.
         message_end: Optional custom message logged at the end.
@@ -113,7 +117,7 @@ def init_worker_logging(log_queue, level: int) -> None:
     write the log.
 
     Args:
-        log_queue: Queue read by the main process.
+        log_queue (multiprocessing.Queue): Queue read by the main process.
         level: Log level of the main process's root logger.
     """
     if multiprocessing.parent_process() is None:

@@ -71,6 +71,7 @@ The tests in `tests/` run capiQ on copies of the example files in a temporary fo
 - `test_initialization.py` checks how initialization simulations are found and scheduled (files in the initialization folder, simulations in `input/` that must run first, missing files, cycles, scenarios skipped after a failed initialization), and also the exit codes, the log lines and the output folder layout.
 - `test_resume.py` checks how interrupted queues are resumed: complete, partial, damaged and unreadable results files, continuations and their backups, and end times changed after a run started.
 - `test_cpu_topology.py` checks the placement on CPU sockets and GPUs (fake Windows and Linux topologies, so no multi-socket machine is needed), the pinned BASEMENT launch, stopping running simulations, the worker processes' log records reaching the capiQ log, and BASEMENT's per-simulation logs.
+- `test_docstrings.py` checks the [developer reference](#developer-reference): every public module has a page and a nav entry, and the docstrings of the public functions and classes render cleanly (no parameter missing from the signature, every parameter typed).
 - `results_files.py` is not a test: it writes the fake BASEMENT results files used by the tests.
 
 Run them all with one command, from any folder:
@@ -125,6 +126,27 @@ The site is written to `docs/site/`, which is not committed. To show a repositor
 ````
 
 The workflow [.github/workflows/docs.yml](.github/workflows/docs.yml) builds the site for every pull request and publishes it to GitHub Pages after every push to `main`.
+
+### Developer reference
+
+The *Developer reference* section of the site is rendered from the docstrings in `src/capiq/` by the mkdocstrings plugin (configured in `docs/zensical.toml`). It has one page per module in `docs/pages/reference/capiq/`, showing public functions and classes only. Each page holds a single line, `::: capiq.<module>`, and `docs/pages/reference/overview.md` lists the modules with the first line of their module docstrings. When you add a module, add `docs/pages/reference/capiq/<module>.md` with that line and an entry under "Developer reference" > "capiQ" in the `nav` of `docs/zensical.toml`; `tests/test_docstrings.py` fails until both exist. Write docstrings in [Google style](https://mkdocstrings.github.io/griffe/reference/docstrings/#google-style), one `name: description` (or `name (type): description` for a parameter without a type annotation) per parameter, with continuation lines indented:
+
+```python
+def run_setup(config_filepath: str, setup_filepath: str) -> dict[str, str | int]:
+    """
+    Execute the BASEMENT setup process.
+
+    Args:
+        config_filepath: Path to the simulation configuration file.
+        setup_filepath: Path where the generated setup file will be written,
+            continued on an indented line.
+
+    Returns:
+        dict with keys ``stdout`` (str), ``stderr`` (str) and ``returncode`` (int).
+    """
+```
+
+A malformed docstring does not stop the documentation build, even with `--strict`. It only prints a `griffe:` warning, and the parameter renders wrongly. The test `tests/test_docstrings.py` fails on these warnings instead. The live preview does not watch `src/`, so restart `zensical serve` to see a changed docstring.
 
 ## Workflow
 
